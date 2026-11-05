@@ -1,6 +1,6 @@
 # Versioning and releases
 
-Repository: [tyagishubham177/stream-companion](https://github.com/tyagishubham177/stream-companion). The repository is private. `main` is the default branch; feature branches hold ongoing work.
+Repository: [tyagishubham177/stream-companion](https://github.com/tyagishubham177/stream-companion). The repository is public. `main` is the default branch; feature branches hold ongoing work.
 
 Use semantic versions: patch for compatible fixes, minor for compatible features, and major for breaking changes. Keep `package.json`, the root package entry in `package-lock.json`, and `public/manifest.json` aligned. Update the renderer marker when needed to identify a new content build, the changelog, and verification evidence. Schema, resolver, adapter and message protocol versions change independently when their corresponding contracts require it.
 

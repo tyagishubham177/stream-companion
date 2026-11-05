@@ -10,7 +10,7 @@ The working name is independent of Netflix, IMDb and any future feature. Other s
 
 ## Repository and versions
 
-Source: [tyagishubham177/stream-companion](https://github.com/tyagishubham177/stream-companion) (private). Download the installable extension ZIP from [GitHub Releases](https://github.com/tyagishubham177/stream-companion/releases/latest). Build files, API keys, browser profiles and local logs are excluded from Git.
+Source: [tyagishubham177/stream-companion](https://github.com/tyagishubham177/stream-companion) (public). Download the installable extension ZIP from [GitHub Releases](https://github.com/tyagishubham177/stream-companion/releases/latest). Build files, API keys, browser profiles and local logs are excluded from Git.
 
 See the [changelog](CHANGELOG.md) for version history and [release instructions](docs/Releasing.md) for annotated tags, verification and packaging. `main` is the default branch. Published version tags remain fixed.
 
