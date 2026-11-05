@@ -51,7 +51,7 @@ describe('bounded demand recovery', () => {
 describe('rating presentation', () => {
   it('never substitutes an example score for unresolved identity or provider errors', () => {
     expect(badgeText(null)).toBe('IMDb …');
-    expect(badgeText({ kind: 'needs_match', reason: 'insufficient_evidence' })).toBe('IMDb ?');
+    expect(badgeText({ kind: 'needs_match', reason: 'insufficient_evidence' })).toBe('IMDb —');
     expect(badgeText({ kind: 'deferred', reason: 'offline', message: 'Offline' })).toBe('IMDb !');
     expect(badgeText({ kind: 'setup_required' })).toBe('IMDb · Setup');
   });

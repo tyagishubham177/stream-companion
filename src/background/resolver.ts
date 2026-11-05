@@ -5,11 +5,13 @@ import { parseDetail, parseSearch, ProviderError } from '../providers/omdb';
 import { Repository, txGet, txPut } from './repository';
 import { DAY, DeferredError, Scheduler } from './scheduler';
 import type { Configuration } from './config';
+import type { DirectIdResult } from '../providers/wikidata';
 
 interface Resolution { expiresAt: number; state?: LookupState; attempts: number }
+interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
 export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
-  constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration) {}
+  constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration, private readonly directIds?: DirectIds) {}
   async detail(id: string, explicit: boolean, retest = false): Promise<RatingRecord> {
     if (!retest) {
       const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
@@ -48,14 +50,20 @@ export class Resolver {
     const settings = await this.config.settings();
     if (!settings.enabled) return { kind: 'disabled' };
     let cache: RatingRecord | undefined;
-    if (mapping?.subject) {
-      if (mapping.method === 'automatic' && mapping.resolverVersion !== RESOLVER_VERSION) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    let directSnapshot: DirectIdResult | undefined;
+    const revalidateSource = mapping?.method === 'automatic' && mapping.provenance?.source === 'wikidata' &&
+      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && !!this.directIds;
+    if (revalidateSource) directSnapshot = await this.directIds!.resolve(o.ref, demand);
+    // A temporary source outage does not invalidate a previously supported identity/cache.
+    if (mapping?.subject && !(revalidateSource && directSnapshot?.kind !== 'deferred')) {
+      // V1 decisions remain compatible; new lookup attempts use the current resolver version.
+      if (mapping.method === 'automatic' && (mapping.resolverVersion < 1 || mapping.resolverVersion > RESOLVER_VERSION)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
       if ((o.mediaType !== 'unknown' && mapping.evidence.mediaType !== 'unknown' && o.mediaType !== mapping.evidence.mediaType) ||
         (usableYear(o) !== undefined && usableYear(mapping.evidence) !== undefined && usableYear(o) !== usableYear(mapping.evidence)))
         return { kind: 'needs_match', reason: 'contradiction' };
       cache = await this.repo.get<RatingRecord>('ratings', ratingKey(mapping.subject));
       if (cache && contradicts(o, cache)) return { kind: 'needs_match', reason: 'contradiction' };
-      if (cache && !refresh && ratingCacheState(cache) === 'fresh') return stateFromRecord(cache, mapping.method);
+      if (cache && !refresh && ratingCacheState(cache) === 'fresh') return stateFromRecord(cache, mapping.method, mapping.provenance?.source);
       if (settings.cacheOnly) return cachedOrDeferred(cache, mapping.method, new DeferredError('provider', 'Cache-only mode is on. Turn it off in Settings to fetch ratings.'));
       if (!(await this.config.credential())) return cachedOrSetup(cache, mapping.method);
       try {
@@ -71,13 +79,53 @@ export class Resolver {
         const record = await this.scheduler.request({ i: id, plot: 'short' }, refresh, raw => parseDetail(raw, id, Date.now()), false, demand);
         await this.repo.put('ratings', ratingKey(record.subject), record);
         if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
-        return stateFromRecord(record, mapping.method);
+        return stateFromRecord(record, mapping.method, mapping.provenance?.source);
       } catch (error) { return cachedOrDeferred(cache, mapping.method, error); }
     }
     if (refresh) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     if (!(await this.config.credential())) return { kind: 'setup_required' };
-    if (!hasStrongEvidence(o)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    if (this.directIds) {
+      const direct = directSnapshot ?? await this.directIds.resolve(o.ref, demand);
+      if (direct.kind === 'matched') {
+        if (mapping?.rejected.includes(direct.imdbId)) return { kind: 'needs_match', reason: 'contradiction' };
+        const validationKey = JSON.stringify(['direct-validation', observationFingerprint(o), direct.imdbId, mapping?.revision ?? 0, resetEpoch, RESOLVER_VERSION]);
+        const invalid = await this.repo.get<Resolution>('resolutions', validationKey);
+        if (invalid?.state && invalid.expiresAt > Date.now()) return invalid.state;
+        try {
+          const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: direct.imdbId }));
+          const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
+            await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false, raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand);
+          await this.repo.put('ratings', ratingKey(record.subject), record);
+          if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
+          const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
+            const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
+            if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) ||
+              (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(direct.imdbId)) return false;
+            txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
+              evidence: o, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
+              provenance: { source: 'wikidata', entityIds: direct.entityIds, checkedAt: direct.checkedAt } } satisfies Mapping);
+            return true;
+          }, true);
+          if (accepted) return stateFromRecord(record, 'automatic', 'wikidata');
+          const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
+          return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
+            ? stateFromRecord(record, 'automatic', winner.provenance?.source) : { kind: 'needs_match', reason: 'contradiction' };
+        } catch (error) {
+          if (error instanceof ProviderError && ['not_found', 'identity'].includes(error.kind)) {
+            const state: LookupState = { kind: 'needs_match', reason: error.kind === 'identity' ? 'contradiction' : 'not_found' };
+            await this.repo.put('resolutions', validationKey, { state, attempts: 1, expiresAt: Date.now() + DAY });
+            return state;
+          }
+          return cachedOrDeferred(undefined, 'automatic', error);
+        }
+      }
+      if (!hasStrongEvidence(o)) {
+        if (direct.kind === 'deferred') return { kind: 'deferred', reason: direct.reason, message: direct.message, retryAfter: direct.retryAfter };
+        return { kind: 'needs_match', reason: direct.kind === 'ambiguous' ? 'ambiguous' : 'not_found' };
+      }
+    }
+    if (!hasStrongEvidence(o)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     const fingerprint = observationFingerprint(o);
     const resolutionKey = JSON.stringify([fingerprint, mapping?.revision ?? 0, resetEpoch, RESOLVER_VERSION]);
     const previous = await this.repo.get<Resolution>('resolutions', resolutionKey);
@@ -123,16 +171,19 @@ export class Resolver {
           evidence: o, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION } satisfies Mapping);
         return true;
       });
-      return accepted ? stateFromRecord(record, 'automatic') : { kind: 'needs_match', reason: 'contradiction' };
+      if (accepted) return stateFromRecord(record, 'automatic');
+      const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
+      return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
+        ? stateFromRecord(record, 'automatic', winner.provenance?.source) : { kind: 'needs_match', reason: 'contradiction' };
     } catch (error) {
       if (error instanceof ProviderError && error.kind === 'not_found') return await save({ kind: 'needs_match', reason: 'not_found' });
       return cachedOrDeferred(undefined, 'automatic', error);
     }
   }
 }
-export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic'): LookupState {
-  if (record.score === null) return { kind: 'unrated', record };
-  return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method };
+export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata'): LookupState {
+  if (record.score === null) return { kind: 'unrated', record, ...(identitySource ? { identitySource } : {}) };
+  return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...(identitySource ? { identitySource } : {}) };
 }
 function cachedOrSetup(cache: RatingRecord | undefined, method: 'manual' | 'automatic'): LookupState {
   if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);
@@ -141,6 +192,6 @@ function cachedOrSetup(cache: RatingRecord | undefined, method: 'manual' | 'auto
 function cachedOrDeferred(cache: RatingRecord | undefined, method: 'manual' | 'automatic', error: unknown): LookupState {
   if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);
   if (error instanceof DeferredError) return { kind: 'deferred', reason: error.reason, retryAfter: error.retryAfter, message: error.message };
-  if (error instanceof ProviderError) return { kind: 'deferred', reason: error.kind === 'not_found' ? 'provider' : error.kind, message: error.message };
+  if (error instanceof ProviderError) return { kind: 'deferred', reason: error.kind === 'not_found' || error.kind === 'identity' ? 'provider' : error.kind, message: error.message };
   return { kind: 'deferred', reason: 'storage', message: 'Local storage failed. New lookups are paused.' };
 }

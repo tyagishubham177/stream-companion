@@ -6,7 +6,7 @@ export function badgeText(state: LookupState | null): string {
     case 'rated': return state.record.score !== null && Number.isFinite(state.record.score) && state.record.score >= 1 && state.record.score <= 10
       ? `★ IMDb ${state.record.score.toFixed(1)}${state.stale ? ' ·' : ''}` : 'IMDb NR';
     case 'unrated': return 'IMDb NR';
-    case 'needs_match': return 'IMDb ?';
+    case 'needs_match': return 'IMDb —';
     case 'deferred': return 'IMDb !';
     case 'setup_required': return 'IMDb · Setup';
     case 'disabled': return '';
@@ -20,8 +20,8 @@ export function stateDescription(state: LookupState | null): string {
     case 'unrated': return 'Rating unavailable from OMDb';
     case 'needs_match':
       return state.reason === 'contradiction' ? 'Saved match conflicts with new title details' :
-        state.reason === 'not_found' ? 'Not found in OMDb with this evidence' :
-        state.reason === 'ambiguous' ? 'Several titles may match' : 'Match needed';
+        state.reason === 'not_found' ? 'No automatic IMDb match found yet' :
+        state.reason === 'ambiguous' ? 'Several IMDb titles match; no rating selected' : 'Not enough information to identify this title automatically';
     case 'deferred': return state.message;
     case 'setup_required': return 'Add your OMDb key in Settings';
     case 'disabled': return 'Ratings are turned off';

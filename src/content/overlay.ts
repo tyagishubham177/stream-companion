@@ -107,11 +107,13 @@ export class Overlay {
       panel.append(score);
       if (record.votes !== null) panel.append(element('p', `${record.votes.toLocaleString()} IMDb votes`, 'meta'));
       panel.append(element('p', 'IMDb rating via OMDb', 'meta'));
+      if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'wikidata')
+        panel.append(element('p', 'Matched automatically by streaming title ID via Wikidata', 'meta'));
       panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
     }
     panel.append(element('p', stateDescription(state)));
-    if (state?.kind === 'needs_match') panel.append(element('p', 'Choose the correct movie or series once. Your saved match stays in this browser.'));
+    if (state?.kind === 'needs_match') panel.append(element('p', 'Automatic lookup could not identify a single title. You can choose a match if you want; browsing does not require it.'));
     if (state?.kind === 'deferred' && state.retryAfter) {
       panel.append(element('p', `Eligible to retry after ${new Date(state.retryAfter).toLocaleString()}`, 'meta'));
     }
@@ -129,7 +131,7 @@ export class Overlay {
     };
     if (state?.kind === 'setup_required') act('Open settings', model.settings, true);
     else if (state) {
-      act(record ? 'Wrong match?' : 'Choose match', model.correct, !record);
+      act(record ? 'Wrong match?' : 'Find a match', model.correct, !record);
       if (record) {
         const imdb = element('a', 'Open IMDb');
         imdb.href = `https://www.imdb.com/title/${record.subject.id}/`;

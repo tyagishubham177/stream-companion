@@ -1,6 +1,6 @@
 import type { Candidate, RatingRecord, SearchResult } from '../shared/contracts';
 
-export type ProviderErrorKind = 'key' | 'quota' | 'offline' | 'provider' | 'not_found';
+export type ProviderErrorKind = 'key' | 'quota' | 'offline' | 'provider' | 'not_found' | 'identity';
 export class ProviderError extends Error {
   constructor(readonly kind: ProviderErrorKind, message: string) { super(message); }
 }
@@ -9,6 +9,8 @@ const text = (v: unknown, max = 300): string | undefined => typeof v === 'string
 const imdbId = (v: unknown): v is string => typeof v === 'string' && /^tt\d{7,12}$/.test(v);
 
 export function parseDetail(raw: unknown, expectedId: string, now: number): RatingRecord {
+  if (object(raw) && raw.Response === 'True' && raw.imdbID === expectedId && raw.Type === 'episode')
+    throw new ProviderError('identity', 'Choose a movie or whole series rather than an episode.');
   if (!object(raw) || raw.Response !== 'True' || !imdbId(raw.imdbID) || raw.imdbID !== expectedId ||
     !text(raw.Title) || !text(raw.Year, 30) || !/^\d{4}(?:[–-]\d{0,4})?$/.test(raw.Year as string) ||
     typeof raw.Type !== 'string' || !['movie', 'series'].includes(raw.Type)) throw new ProviderError('provider', 'The rating service returned an unsupported title response.');

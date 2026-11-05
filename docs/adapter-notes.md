@@ -4,6 +4,8 @@ Inspection date: 5 November 2026, logged-in desktop Chrome browse interface. No 
 
 Observed modern card: `a[data-uia="standard-card"][aria-label]` with `/browse?jbv=<title-id>`. Image alternative text can be empty, so card identity uses its explicit accessible label. Hashed class names are excluded. Watch URLs can point to episodes and are rejected as source title IDs.
 
+Version 0.2 also supports the inspected `a[data-uia="progress-card"][aria-label]` variant used by Continue Watching. These links expose whole-title `jbv` IDs and use the same separate overlay and visibility rules. The browser fixture includes this variant and a duplicate title so coverage and shared requests are verified together.
+
 Observed detail modal: `[data-uia="modal-motion-container-DETAIL_MODAL"]`; scoped `[data-uia="previewModal--detailsMetadata"]`. The user-opened series panel had an Episodes heading and a later season date, so the adapter learns series type only. It never compares that date to IMDb series start year.
 
 An inspected movie supplied `.videoMetadata--line > .year` and `span.duration` within `[data-uia="videoMetadata--container"]`, plus explicit `This Movie Is:` metadata. Enrichment requires a matching scoped title image label and current source ID. English copy is a known coverage limit. Detail-page redirects and alternative layouts may prevent enrichment.

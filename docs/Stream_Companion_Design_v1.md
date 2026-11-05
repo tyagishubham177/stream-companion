@@ -10,6 +10,8 @@
 
 **Initial capability:** IMDb ratings on Netflix in desktop Chrome.
 
+**Implementation update:** version 0.2 adds automatic ID matching and Continue Watching coverage. [Automatic visible title ratings](Automatic_Ratings_v0_2.md) supersedes the initial matching interaction and network-permission baseline below; weekly/monthly score caching remains in place.
+
 Stream Companion adds useful context while browsing streaming services. Ratings are its first feature; Netflix is its first platform adapter. Product naming, shared identities and UI ownership allow later features and platforms without making them dependencies of the first release. The working name has not been cleared for public distribution.
 
 The governing rule remains: **display a numeric rating only after the title identity has sufficient support.** Uncertain identity produces a matching action. Missing or failed data never produces a sample score.

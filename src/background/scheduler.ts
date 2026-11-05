@@ -67,7 +67,7 @@ export class Scheduler {
       if (current?.id !== credential.id || current.version !== credential.version) return;
       const key = `provider:${credential.id}`;
       const old = await txGet<Circuit>(tx, 'state', key) ?? { until: 0, failures: 0, quotaStep: 0 };
-      if (!error || (error instanceof ProviderError && error.kind === 'not_found')) {
+      if (!error || (error instanceof ProviderError && ['not_found', 'identity'].includes(error.kind))) {
         if ((old.kind === 'key' || old.kind === 'quota') && old.kind !== probeKind) return;
         txPut(tx, 'state', key, { until: 0, failures: 0, quotaStep: 0 }); return;
       }

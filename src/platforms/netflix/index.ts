@@ -1,7 +1,7 @@
 import type { StreamingPlatformAdapter } from '../contracts';
 import { normaliseTitle } from '../../shared/identity';
 
-const CARD = 'a[data-uia="standard-card"][aria-label]';
+const CARD = 'a:is([data-uia="standard-card"],[data-uia="progress-card"])[aria-label]';
 const MODAL = '[data-uia="modal-motion-container-DETAIL_MODAL"]';
 const TITLE_ID = /^\d{1,12}$/;
 
@@ -17,7 +17,7 @@ export function netflixTitleId(href: string, base = 'https://www.netflix.com'): 
 }
 
 export const netflixAdapter: StreamingPlatformAdapter = {
-  id: 'netflix', version: 1,
+  id: 'netflix', version: 2,
   supports(url) {
     return url.origin === 'https://www.netflix.com' &&
       (['/browse', '/search', '/browse/my-list'].includes(url.pathname) || /^\/browse\/genre\/\d+$/.test(url.pathname));
@@ -28,7 +28,7 @@ export const netflixAdapter: StreamingPlatformAdapter = {
     const titleId = netflixTitleId(tile.getAttribute('href') ?? '');
     const displayTitle = tile.getAttribute('aria-label')?.replace(/\s+/g, ' ').trim();
     if (!titleId || !displayTitle || displayTitle.length > 300 || /[\u0000-\u001f]/.test(displayTitle)) return null;
-    return { ref: { platformId: 'netflix', titleId }, displayTitle, mediaType: 'unknown', adapterVersion: 1 };
+    return { ref: { platformId: 'netflix', titleId }, displayTitle, mediaType: 'unknown', adapterVersion: 2 };
   },
   visibleDetails(observations) {
     const modal = document.querySelector<HTMLElement>(MODAL);

@@ -8,6 +8,8 @@ let base: string;
 let options: Page;
 let profile: string;
 let requests: URL[] = [];
+const identityRequests: URL[] = [];
+const networkFailures: Array<{ host: string; method: string; error: string | null }> = [];
 let providerMode: 'normal' | 'quota' = 'normal';
 const details = (id: string) => ({ Response: 'True', Title: id === 'tt0133093' ? 'Fixture Reference' : id === 'tt7654321' ? 'Fixture Dunes' : 'Fixture Orbit',
   Year: id === 'tt0133093' ? '1999' : '2020', Type: 'movie', imdbID: id,
@@ -22,9 +24,20 @@ async function launch(): Promise<void> {
   await mkdir(profile, { recursive: true });
   context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true, viewport: { width: 1280, height: 900 },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`,
-      '--host-resolver-rules=MAP www.omdbapi.com 127.0.0.1, MAP www.netflix.com 127.0.0.1, EXCLUDE localhost'] });
+      '--host-resolver-rules=MAP www.omdbapi.com 127.0.0.1, MAP www.netflix.com 127.0.0.1, MAP query.wikidata.org 127.0.0.1, EXCLUDE localhost'] });
+  context.on('requestfailed', request => networkFailures.push({ host: new URL(request.url()).hostname, method: request.method(), error: request.failure()?.errorText ?? null }));
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (url.hostname === 'query.wikidata.org') {
+      identityRequests.push(url);
+      expect(url.searchParams.has('apikey')).toBe(false);
+      expect(JSON.stringify(route.request().headers())).not.toContain('fixture_only');
+      const ids = [...(url.searchParams.get('query') ?? '').matchAll(/"(\d{1,12})"/g)].map(x => x[1]);
+      const known: Record<string, string> = { '1001': 'tt1234567', '1002': 'tt7654321' };
+      return route.fulfill({ json: { head: { vars: ['netflixId', 'imdbId', 'item'] }, results: { bindings: ids.filter(id => known[id]).map(id => ({
+        netflixId: { type: 'literal', value: id }, imdbId: { type: 'literal', value: known[id] }, item: { type: 'uri', value: `http://www.wikidata.org/entity/Q${id}` }
+      })) } } });
+    }
     if (url.hostname === 'www.omdbapi.com') {
       requests.push(url);
       if (providerMode === 'quota') return route.fulfill({ json: { Response: 'False', Error: 'Request limit reached!' } });
@@ -68,20 +81,29 @@ test('key setup uses the actual MV3 worker, fixed provider and durable ledger', 
   await options.screenshot({ path: 'test-results/settings.png', fullPage: true });
 });
 
-test('visible badges, correction preview, duplicate fanout, keyboard and tile recycling', async () => {
+test('all visible cards resolve automatically without opening titles; corrections remain optional', async () => {
   const browse = await context.newPage(); await browse.goto('https://www.netflix.com/browse');
   const badges = browse.locator('[data-sc-root]').locator('.badge:visible');
+  await expect(browse.locator('a[data-uia="progress-card"]')).toHaveCount(1);
   await expect(badges).toHaveCount(3);
-  await expect(badges.first()).toHaveText('IMDb ?');
-  expect(requests).toHaveLength(1); // Title-only automatic matching makes no provider calls.
+  try { await expect(badges.first()).toHaveText('★ IMDb 8.2'); }
+  catch (error) { throw new Error(JSON.stringify({ identityCalls: identityRequests.length, networkFailures }), { cause: error }); }
+  await expect(badges.nth(1)).toHaveText('IMDb NR');
+  await expect(badges.nth(2)).toHaveText('★ IMDb 8.2');
+  expect(requests).toHaveLength(3); // Key test + two unique IMDb IDs, despite a duplicate card.
+  expect(identityRequests).toHaveLength(1);
+  expect(identityRequests[0].searchParams.get('query')).toContain('1001');
+  expect(identityRequests[0].searchParams.get('query')).toContain('1002');
+  expect(requests.slice(1).every(url => url.searchParams.has('i') && !url.searchParams.has('s'))).toBe(true);
   await badges.first().click();
   await expect(browse.getByRole('dialog')).toBeVisible();
+  await expect(browse.getByRole('dialog')).toContainText('Matched automatically by streaming title ID via Wikidata');
   await browse.keyboard.press('Escape');
   await expect(browse.getByRole('dialog')).toHaveCount(0);
   expect(await browse.evaluate(() => document.querySelector('[data-sc-root]')?.shadowRoot?.activeElement?.className)).toBe('badge');
   await badges.first().press('Enter');
   const newPage = context.waitForEvent('page');
-  await browse.getByRole('button', { name: 'Choose match', exact: true }).click();
+  await browse.getByRole('button', { name: 'Wrong match?', exact: true }).click();
   const correction = await newPage; await correction.waitForLoadState();
   await expect(correction.locator('#source-title')).toHaveText('Fixture Orbit');
   await correction.getByRole('button', { name: 'Search', exact: true }).click();
@@ -100,7 +122,7 @@ test('visible badges, correction preview, duplicate fanout, keyboard and tile re
     const a = document.querySelector<HTMLAnchorElement>('a[data-uia="standard-card"]')!;
     a.href = '/browse?jbv=1003'; a.setAttribute('aria-label', 'Fixture Unresolved');
   });
-  await expect(badges.first()).toHaveText('IMDb ?');
+  await expect(badges.first()).toHaveText('IMDb —');
   await expect(badges.filter({ hasText: '8.2' })).toHaveCount(1);
   await browse.reload();
   await expect(browse.locator('.badge:visible').filter({ hasText: '8.2' })).toHaveCount(2);
@@ -178,7 +200,7 @@ test('browser and worker restart preserve saved choices, key accounting and prov
   await launch();
   const after = await command<{ requests24h: number; mappings: number; keyConfigured: boolean; provider: { kind: string } }>(options, { type: 'GET_STATUS' });
   expect(after.requests24h).toBe(before.requests24h);
-  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(1);
+  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(2);
   expect(after.keyConfigured).toBe(true); expect(after.provider.kind).toBe('paused');
   const requestCount = requests.length;
   await expect(command(options, { type: 'TEST_API_KEY' })).rejects.toThrow('cooldown');
