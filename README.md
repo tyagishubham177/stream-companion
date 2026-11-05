@@ -8,6 +8,12 @@ A personal Chrome extension with generic streaming branding and a modular platfo
 
 The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This local release candidate has passed an initial live Netflix/OMDb check on Search and My List; broader catalogue acceptance remains open. See `docs/verification.md` for the exact evidence and limits.
 
+## Repository and versions
+
+Source: [tyagishubham177/stream-companion](https://github.com/tyagishubham177/stream-companion) (private). Download the installable extension ZIP from [GitHub Releases](https://github.com/tyagishubham177/stream-companion/releases/latest). Build files, API keys, browser profiles and local logs are excluded from Git.
+
+See the [changelog](CHANGELOG.md) for version history and [release instructions](docs/Releasing.md) for annotated tags, verification and packaging. `main` is the default branch. Published version tags remain fixed.
+
 ## Build and verify
 
 Use Node.js 24 LTS and PowerShell:
