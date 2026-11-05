@@ -23,15 +23,30 @@ Test provider responses use explicitly synthetic titles and a fake key. Network 
 
 ## Live evidence and remaining acceptance
 
-The real logged-in Netflix browse markup and one naturally opened series/movie detail layout were inspected. This supplied selector and evidence provenance, including the important distinction between a series start year and a displayed season year. No account/session export was made.
+The extension was installed in the user's normal Chrome profile on 5 November 2026. A personal free OMDb key was generated and activated; the user saved it in Settings and reported a successful connection test. Browser automation could operate Netflix but explicitly could not access the `chrome-extension://` settings/correction pages. No account/session export was made, and no API key is stored in this repository or its screenshots.
 
-The extension has not been installed into the user's normal Chrome profile. No real OMDb key was supplied or tested. Live injected badge interactions, Netflix search/My List layouts, browser-native zoom, playback separation and the 100-title labelled catalogue gate remain open. Those require the installation and verification steps in `README.md`; they are not implied by fixture success.
+| Live check | Observed result |
+|---|---|
+| Home | Modern browse cards received setup badges before configuration, then match-needed states after configuration |
+| Search | `/search?q=Far%20and%20Away` rendered rating/status badges |
+| Automatic movie identity | Opening the normal movie detail panel supplied title, explicit movie label, runtime and 1992 release year; no private Netflix API was used |
+| Real provider result | Far and Away (1992), IMDb `tt0104231`, score 6.6/10, 73,532 votes in the fetched OMDb response |
+| Freshness | Details showed a 30-day interval for this older movie |
+| Persistence/cache | After a full reload and later navigation back to Search, details retained the exact fetched time, `05/11/2026, 11:45:29` (local browser display), demonstrating reuse of the stored snapshot |
+| Keyboard | Enter opened rating details; Escape dismissed them and returned focus to the badge |
+| Playback separation | Tested badge interactions left the URL on Search rather than navigating to `/watch/` |
+| My List | 44 recognized cards, 44 badge elements and one overlay host; 10 badges visible in the inspected viewport |
+| Scrolling | At scroll position 600 CSS px, all 10 visible badges stayed inside the viewport and aligned with the matching underlying title; one overlay host remained |
 
-Performance targets such as p95 cached latency, DOM long tasks, memory stability and catalogue-wide automatic coverage have not been measured. The package is a local v1 candidate, not a public-store release. The original input design remains untouched.
+The live sample validates one numeric title and selected browse mechanics. It does not establish catalogue-wide automatic coverage or precision. Many cards intentionally show `IMDb ?` when Netflix exposes insufficient identity evidence. Manual correction/confirmation, settings toggles/cache clearing, browser restart and quota handling were verified in isolated MV3 fixtures; their equivalent live-profile actions were not all repeated because extension pages are blocked to browser control. Browser-native zoom, full playback-state teardown and the labelled 100-title catalogue gate remain open. No test deliberately started title playback.
+
+The unchanged fetched timestamp supports cache reuse; production provider request logs were not captured because request URLs contain credentials. Performance targets such as p95 cached latency, DOM long tasks, memory stability and catalogue-wide automatic coverage have not been measured. The package remains a local v1 candidate rather than a public-store release. The original input design remains untouched.
+
+![Stream Companion displaying a real IMDb rating on Netflix Search](images/netflix-live-rating.jpg)
 
 ## Screenshots
 
-These are captures from the actual built extension in isolated browser fixtures. All displayed title scores are synthetic.
+The following captures are from the actual built extension in isolated browser fixtures. Their displayed title scores are synthetic; the live Netflix capture above uses the real provider response.
 
 ![Stream Companion ratings on synthetic browse cards](images/badges.png)
 

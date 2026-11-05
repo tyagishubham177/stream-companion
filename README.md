@@ -2,7 +2,7 @@
 
 A personal Chrome extension with generic streaming branding and a modular platform boundary. **V1 adds IMDb ratings and title matching to Netflix.** The data provider is OMDb; you supply your own key in extension Settings.
 
-The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This is a local release candidate; live API/catalogue acceptance remains user verification.
+The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This local release candidate has passed an initial live Netflix/OMDb check on Search and My List; broader catalogue acceptance remains open. See `docs/verification.md` for the exact evidence and limits.
 
 ## Build and verify
 
