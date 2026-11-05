@@ -100,7 +100,7 @@ test('all visible cards resolve automatically without opening titles; correction
   await expect(browse.getByRole('dialog')).toContainText('Matched automatically by streaming title ID via Wikidata');
   await browse.keyboard.press('Escape');
   await expect(browse.getByRole('dialog')).toHaveCount(0);
-  expect(await browse.evaluate(() => document.querySelector('[data-sc-root]')?.shadowRoot?.activeElement?.className)).toBe('badge');
+  expect(await badges.first().evaluate(button => (button.getRootNode() as ShadowRoot).activeElement === button)).toBe(true);
   await badges.first().press('Enter');
   const newPage = context.waitForEvent('page');
   await browse.getByRole('button', { name: 'Wrong match?', exact: true }).click();
@@ -138,6 +138,95 @@ test('all visible cards resolve automatically without opening titles; correction
   await browse.evaluate(() => history.pushState(null, '', '/browse'));
   await expect(browse.locator('.badge:visible')).toHaveCount(3);
   await browse.close(); await correction.close();
+});
+
+test('badges follow native scrolling and transforms without flicker, focus jumps or playback', async () => {
+  const browse = await context.newPage(); await browse.goto('https://www.netflix.com/browse');
+  const card = browse.locator('a[data-uia="standard-card"]').first();
+  const badge = browse.locator('[data-sc-root="badge"] .badge').first();
+  await expect(badge).toHaveText('★ IMDb 8.2');
+  await expect(browse.locator('[data-sc-root="badge"]')).toHaveCount(3);
+  expect(await badge.evaluate(button => !(button.getRootNode() as ShadowRoot).host.closest('a'))).toBe(true);
+  await browse.evaluate(() => {
+    document.querySelector<HTMLElement>('main')!.style.minHeight = '2400px';
+    const row = document.querySelector<HTMLElement>('#row')!;
+    row.style.width = '520px'; row.style.overflowX = 'auto';
+    // A platform focus handler may scroll or open the focused card. Automatic
+    // dismissal must not invoke it, even when a panel control owned focus.
+    (window as unknown as { cardFocusCount: number }).cardFocusCount = 0;
+    document.addEventListener('focus', event => {
+      if (event.target instanceof Element && event.target.matches('a[data-uia]')) {
+        (window as unknown as { cardFocusCount: number }).cardFocusCount++;
+      }
+    }, true);
+  });
+  const providerCount = requests.length;
+  const identityCount = identityRequests.length;
+  const samples = await card.evaluate(async tile => {
+    const wrapper = tile.parentElement!;
+    const row = wrapper.parentElement!;
+    const button = wrapper.querySelector('[data-sc-root="badge"]')!.shadowRoot!.querySelector<HTMLButtonElement>('.badge')!;
+    const results: Array<{ x: number; y: number; text: string | null; hidden: boolean }> = [];
+    for (let frame = 0; frame < 40; frame++) {
+      await new Promise<void>(resolve => requestAnimationFrame(() => {
+        // Read in the same frame as the platform movement: a fixed portal that
+        // catches up in another rAF can look correct only after scrolling stops.
+        window.scrollTo(0, frame * 2);
+        row.scrollLeft = frame * 0.75;
+        wrapper.style.transform = `translateX(${frame * 0.375}px)`;
+        const anchorRect = tile.getBoundingClientRect();
+        const badgeRect = button.getBoundingClientRect();
+        results.push({ x: anchorRect.right - badgeRect.right, y: badgeRect.top - anchorRect.top,
+          text: button.textContent, hidden: button.hidden || getComputedStyle(button).display === 'none' });
+        resolve();
+      }));
+    }
+    return results;
+  });
+  expect(samples).toHaveLength(40);
+  for (const sample of samples) {
+    expect(sample.x).toBeCloseTo(8, 1); expect(sample.y).toBeCloseTo(8, 1);
+    expect(sample.hidden).toBe(false); expect(sample.text).toBe('★ IMDb 8.2');
+  }
+  expect(requests.length).toBe(providerCount); expect(identityRequests.length).toBe(identityCount);
+
+  await badge.click(); await expect(browse.getByRole('dialog')).toBeVisible();
+  await browse.keyboard.press('Escape');
+  await expect(browse.getByRole('dialog')).toHaveCount(0);
+  expect(await badge.evaluate(button => (button.getRootNode() as ShadowRoot).activeElement === button)).toBe(true);
+  await badge.press('Enter'); await expect(browse.getByRole('dialog')).toBeVisible();
+  await browse.evaluate(() => window.scrollTo(0, 100));
+  await expect(browse.getByRole('dialog')).toHaveCount(0);
+  expect(await browse.evaluate(() => ({ y: scrollY, focus: (window as unknown as { cardFocusCount: number }).cardFocusCount })))
+    .toEqual({ y: 100, focus: 0 });
+  await badge.press('Space'); await expect(browse.getByRole('dialog')).toBeVisible();
+  await browse.keyboard.press('Escape');
+  await badge.dblclick();
+  expect(await browse.evaluate(() => (window as unknown as { playbackCount: number }).playbackCount)).toBe(0);
+
+  // The second card's right-corner badge is outside the nested scroller. It
+  // must be clipped by that scroller rather than float over adjacent content.
+  expect(await browse.evaluate(() => {
+    const row = document.querySelector('#row')!;
+    const host = row.children[1].querySelector('[data-sc-root="badge"]')!;
+    const button = host.shadowRoot!.querySelector('.badge')!;
+    const rect = button.getBoundingClientRect(); const clip = row.getBoundingClientRect();
+    return rect.right > clip.right && !document.elementsFromPoint(rect.right - 2, rect.top + 10).includes(host);
+  })).toBe(true);
+
+  await browse.locator('.tile').nth(2).evaluate(wrapper => (wrapper as HTMLElement).style.setProperty('position', 'sticky', 'important'));
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { enabled: false } });
+  await expect(browse.locator('[data-sc-root]')).toHaveCount(0);
+  expect(await browse.locator('.tile').evaluateAll(wrappers => wrappers.slice(0, 2).every(wrapper => (wrapper as HTMLElement).style.position === ''))).toBe(true);
+  expect(await browse.locator('.tile').nth(2).evaluate(wrapper => ({ value: (wrapper as HTMLElement).style.position,
+    priority: (wrapper as HTMLElement).style.getPropertyPriority('position') }))).toEqual({ value: 'sticky', priority: 'important' });
+  // The platform's own style changes survive removal of extension mounts.
+  expect(await card.evaluate(tile => tile.parentElement!.style.transform)).toBe('translateX(14.625px)');
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { enabled: true } });
+  await expect(badge).toHaveText('★ IMDb 8.2');
+  await expect(browse.locator('[data-sc-root="badge"]')).toHaveCount(3);
+  expect(requests.length).toBe(providerCount); expect(identityRequests.length).toBe(identityCount);
+  await browse.close();
 });
 
 test('age-aware caches avoid repeated fetches for a week or month and deduplicate refreshes', async () => {

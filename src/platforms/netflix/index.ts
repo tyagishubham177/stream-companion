@@ -23,6 +23,18 @@ export const netflixAdapter: StreamingPlatformAdapter = {
       (['/browse', '/search', '/browse/my-list'].includes(url.pathname) || /^\/browse\/genre\/\d+$/.test(url.pathname));
   },
   findTiles(root) { return Array.from(root.querySelectorAll<HTMLElement>(CARD)); },
+  badgeContainer(tile) {
+    // Inspected standard/progress cards have a plain, card-sized DIV wrapper.
+    // Fail closed on changed markup; never nest controls in a playback link.
+    const parent = tile.parentElement;
+    if (!parent || parent.tagName !== 'DIV' || parent.closest('a,button,[role="button"],[role="link"],[tabindex]') ||
+      parent.querySelectorAll(CARD).length !== 1) return null;
+    const card = tile.getBoundingClientRect(), wrapper = parent.getBoundingClientRect();
+    if (card.width < 80 || card.height < 38 ||
+      Math.abs(card.left - wrapper.left) > 1 || Math.abs(card.top - wrapper.top) > 1 ||
+      Math.abs(card.right - wrapper.right) > 1 || Math.abs(card.bottom - wrapper.bottom) > 1) return null;
+    return parent;
+  },
   observeTitle(tile) {
     if (!tile.matches(CARD) || tile.closest(MODAL)) return null;
     const titleId = netflixTitleId(tile.getAttribute('href') ?? '');

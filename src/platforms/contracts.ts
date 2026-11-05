@@ -6,6 +6,7 @@ export interface StreamingPlatformAdapter {
   readonly version: number;
   supports(url: URL): boolean;
   findTiles(root: ParentNode): Iterable<HTMLElement>;
+  badgeContainer(tile: HTMLElement): HTMLElement | null;
   observeTitle(tile: HTMLElement): TitleObservation | null;
   visibleDetails(observations: readonly TitleObservation[]): TitleObservation | null;
   isObscured(): boolean;

@@ -1,7 +1,14 @@
 import type { LookupState, TitleObservation } from '../shared/contracts';
 import { badgeText, stateDescription } from '../features/ratings/presentation';
 import { DAY_MS, ratingFreshFor } from '../shared/freshness';
-import { overlayStyles } from './styles';
+import { badgeStyles, overlayStyles } from './styles';
+
+export interface BadgeMount {
+  host: HTMLDivElement;
+  container: HTMLElement;
+  button: HTMLButtonElement;
+  dispose(): void;
+}
 
 export interface DetailsModel {
   observation: TitleObservation;
@@ -50,7 +57,15 @@ export class Overlay {
     document.addEventListener('keydown', this.onEscape, true);
   }
 
-  createBadge(title: string, open: (button: HTMLButtonElement) => void): HTMLButtonElement {
+  createBadge(container: HTMLElement, title: string, open: (button: HTMLButtonElement) => void): BadgeMount {
+    const host = element('div'); host.dataset.scRoot = 'badge';
+    host.dataset.scRenderer = 'native-0.2.1';
+    const root = host.attachShadow({ mode: 'open' });
+    const style = element('style'); style.textContent = badgeStyles; root.append(style);
+    const previous = container.style.getPropertyValue('position');
+    const priority = container.style.getPropertyPriority('position');
+    const positioned = getComputedStyle(container).position === 'static';
+    if (positioned) container.style.setProperty('position', 'relative');
     const button = element('button', 'IMDb …', 'badge');
     button.type = 'button'; button.hidden = true;
     button.setAttribute('aria-label', `${title}: looking up IMDb rating`);
@@ -59,8 +74,18 @@ export class Overlay {
     button.addEventListener('click', event => {
       event.preventDefault(); event.stopPropagation(); open(button);
     });
-    this.root.append(button);
-    return button;
+    for (const name of ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup']) {
+      root.addEventListener(name, event => event.stopPropagation());
+    }
+    root.append(button); container.append(host);
+    return { host, container, button, dispose() {
+      host.remove();
+      // Preserve site changes made after the mount took ownership.
+      if (positioned && container.style.getPropertyValue('position') === 'relative' && !container.style.getPropertyPriority('position')) {
+        if (previous) container.style.setProperty('position', previous, priority);
+        else container.style.removeProperty('position');
+      }
+    } };
   }
 
   updateBadge(button: HTMLButtonElement, observation: TitleObservation, state: LookupState | null): void {
@@ -164,7 +189,7 @@ export class Overlay {
     this.panel?.remove(); this.panel = null; this.model = null;
     button?.setAttribute('aria-expanded', 'false');
     if (restoreFocus && button?.isConnected && !button.hidden) button.focus({ preventScroll: true });
-    else if (ownedFocus && fallback?.isConnected) fallback.focus({ preventScroll: true });
+    else if (restoreFocus && ownedFocus && fallback?.isConnected) fallback.focus({ preventScroll: true });
   }
   dispose(): void {
     this.close(false);

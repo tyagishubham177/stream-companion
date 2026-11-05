@@ -51,7 +51,7 @@ For the installed unpacked copy, reload Stream Companion at `chrome://extensions
 2. On Home, Search and My List, open badge details with keyboard Enter/Space, then Escape. Check that badge actions do not start playback.
 3. Choose and confirm a known film/series. Verify duplicate cards update and the match survives a tab reload and browser restart.
 4. Scroll, open/close title details, navigate back/forward, and check that recycled cards keep their own rating.
-5. Disable/re-enable ratings. Try cache-only mode and 200% browser zoom. Verify playback/account pages have no overlays.
+5. Scroll vertically and move carousels: badges should remain attached to cards, clip with their row, and keep completed ratings. Open a badge then scroll: the panel should close without jumping the page. Disable/re-enable ratings. Try cache-only mode and 200% browser zoom. Verify playback/account pages have no overlays.
 6. Review provider usage and separate cache/match/key actions in Settings. Send only redacted diagnostics if troubleshooting.
 
 Browse cards often lack release year/type. Version 0.2 resolves their public Netflix IDs automatically, rather than guessing from title popularity. If a unique ID mapping is absent, actual movie details can still supply evidence for the strict fallback. Series dates remain conservative. Modern browse and Continue Watching selectors were inspected on 5 November 2026; unrecognized layouts fail closed.

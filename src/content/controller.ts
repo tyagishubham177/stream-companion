@@ -3,8 +3,9 @@ import { observationFingerprint } from '../shared/identity';
 import { titleKey, type Broadcast, type LookupResult, type LookupState, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
 import { adapterFor } from '../platforms/registry';
 import type { StreamingPlatformAdapter } from '../platforms/contracts';
-import { Overlay } from './overlay';
+import { Overlay, type BadgeMount } from './overlay';
 import { automaticRetryDelay, canResumeOnDemand } from '../features/ratings/recovery';
+import { DAY_MS, ratingCacheState } from '../shared/freshness';
 
 interface TileState {
   tile: HTMLElement;
@@ -13,14 +14,14 @@ interface TileState {
   generation: number;
   revision: number;
   button: HTMLButtonElement;
+  mount: BadgeMount;
   visible: boolean;
   state: LookupState | null;
   requested: boolean;
   retries: number;
+  checkedAt?: number;
   timer?: ReturnType<typeof setTimeout>;
 }
-
-interface Clip { left: number; top: number; right: number; bottom: number }
 
 export class ContentController {
   private status: PublicStatus | null = null;
@@ -46,6 +47,10 @@ export class ContentController {
 
   private readonly reposition = (): void => {
     if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.position(); });
+  };
+  private readonly scroll = (event: Event): void => {
+    // Cards scroll natively. Dismiss details without moving focus or measuring cards.
+    if (!this.overlay || !event.composedPath().includes(this.overlay.host)) this.overlay?.close(false);
   };
   private readonly visibility = (): void => {
     clearTimeout(this.statusTimer); this.statusTimer = undefined;
@@ -79,7 +84,7 @@ export class ContentController {
     document.addEventListener('visibilitychange', this.visibility);
     window.addEventListener('online', this.online);
     window.addEventListener('popstate', this.visibility);
-    window.addEventListener('scroll', this.reposition, { capture: true, passive: true });
+    window.addEventListener('scroll', this.scroll, { capture: true, passive: true });
     window.addEventListener('resize', this.reposition, { passive: true });
     // A URL check covers SPA navigation even when there is no useful root mutation.
     this.routeTimer = setInterval(() => this.reconcile(), 1000);
@@ -201,7 +206,7 @@ export class ContentController {
     if (!this.overlay || !this.adapter || document.hidden) return;
     if (!this.adapter.supports(new URL(location.href))) { this.reconcile(); return; }
     for (const state of this.tiles.values()) {
-      if (!state.tile.isConnected || !this.syncIdentity(state)) this.removeTile(state);
+      if (!state.tile.isConnected || this.adapter.badgeContainer(state.tile) !== state.mount.container || !state.mount.host.isConnected || !this.syncIdentity(state)) this.removeTile(state);
     }
     const candidates = Array.from(this.adapter.findTiles(document));
     const observations = candidates.flatMap(tile => { const o = this.adapter?.observeTitle(tile); return o ? [o] : []; });
@@ -222,11 +227,13 @@ export class ContentController {
       if (previous) { this.syncIdentity(previous); continue; }
       const observation = this.observation(tile);
       if (!observation) continue;
-      const button = this.overlay.createBadge(observation.displayTitle, () => {
+      const container = this.adapter.badgeContainer(tile);
+      if (!container) continue;
+      const mount = this.overlay.createBadge(container, observation.displayTitle, () => {
         const state = this.tiles.get(tile); if (state) this.open(state);
       });
-      const state: TileState = { tile, button, observation, fingerprint: observationFingerprint(observation), generation: 0, revision: 0, visible: false, state: this.initialState(), requested: false, retries: 0 };
-      this.overlay.updateBadge(button, observation, state.state);
+      const state: TileState = { tile, button: mount.button, mount, observation, fingerprint: observationFingerprint(observation), generation: 0, revision: 0, visible: false, state: this.initialState(), requested: false, retries: 0 };
+      this.overlay.updateBadge(state.button, observation, state.state);
       this.tiles.set(tile, state); this.intersection?.observe(tile);
     }
     this.position();
@@ -279,7 +286,7 @@ export class ContentController {
     for (const state of this.tiles.values()) if (titleKey(state.observation.ref) === key) {
       // A released in-flight response cannot overwrite a renewed consumer later.
       state.generation++;
-      state.requested = state.state?.kind === 'deferred' && !canResumeOnDemand(state.state, Date.now());
+      state.requested = !!state.state && !canResumeOnDemand(state.state, Date.now());
       clearTimeout(state.timer); state.timer = undefined;
     }
     this.release(ref);
@@ -292,7 +299,12 @@ export class ContentController {
       this.scheduleRetry(state);
       return;
     }
-    state.requested = false; state.retries = 0;
+    const result = state.state;
+    const now = Date.now();
+    const due = result && (result.kind === 'rated' || result.kind === 'unrated')
+      ? ratingCacheState(result.record, now) !== 'fresh'
+      : result?.kind === 'needs_match' && (!state.checkedAt || now - state.checkedAt >= DAY_MS || now < state.checkedAt);
+    if (!result || due || canResumeOnDemand(result, now)) { state.requested = false; state.retries = 0; }
   }
 
   private hideTile(state: TileState): void {
@@ -337,6 +349,7 @@ export class ContentController {
       const result = await rpc<LookupResult>(refresh ? { type: 'REFRESH', observation: state.observation, revision } : { type: 'LOOKUP', observation: state.observation });
       if (!this.accepts(state, generation, fingerprint, epoch) || result.fingerprint !== fingerprint || result.revision < state.revision) return;
       state.revision = result.revision;
+      state.checkedAt = Date.now();
       state.state = this.status?.keyConfigured === false && !['rated', 'unrated'].includes(result.state.kind)
         ? { kind: 'setup_required' } : result.state;
       this.overlay?.updateBadge(state.button, state.observation, state.state);
@@ -372,45 +385,15 @@ export class ContentController {
     });
   }
 
-  private clip(tile: HTMLElement): Clip | null {
-    const rect = tile.getBoundingClientRect();
-    if (rect.width < 80 || rect.height < 38) return null;
-    const clip = { left: Math.max(0, rect.left), top: Math.max(0, rect.top), right: Math.min(innerWidth, rect.right), bottom: Math.min(innerHeight, rect.bottom) };
-    for (let parent = tile.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
-      const style = getComputedStyle(parent);
-      if (parent.hidden || parent.getAttribute('aria-hidden') === 'true' || parent.inert || style.visibility === 'hidden' || style.display === 'none') return null;
-      const r = parent.getBoundingClientRect();
-      if (/(hidden|clip|auto|scroll)/.test(style.overflowX)) { clip.left = Math.max(clip.left, r.left); clip.right = Math.min(clip.right, r.right); }
-      if (/(hidden|clip|auto|scroll)/.test(style.overflowY)) { clip.top = Math.max(clip.top, r.top); clip.bottom = Math.min(clip.bottom, r.bottom); }
-    }
-    return clip;
-  }
-
   private position(): void {
     if (!this.overlay) return;
     const obscured = this.adapter?.isObscured() || document.hidden;
     for (const state of this.tiles.values()) {
-      const wasHidden = state.button.hidden;
-      if (obscured || !state.visible || !state.tile.isConnected) { this.hideTile(state); continue; }
-      const clip = this.clip(state.tile);
-      if (!clip) { this.hideTile(state); continue; }
-      // Measure only after text changes; the button never participates in site layout.
+      if (state.mount.host.dataset.corner !== this.status?.settings.corner)
+        state.mount.host.dataset.corner = this.status?.settings.corner ?? 'top-right';
+      if (obscured || !state.visible || !state.tile.isConnected || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) { this.hideTile(state); continue; }
       state.button.hidden = false;
-      const width = state.button.offsetWidth;
-      const height = state.button.offsetHeight;
-      const rect = state.tile.getBoundingClientRect();
-      const left = this.status?.settings.corner === 'top-left' ? rect.left + 8 : rect.right - width - 8;
-      const top = rect.top + 8;
-      if (left < clip.left || top < clip.top || left + width > clip.right || top + height > clip.bottom) {
-        this.hideTile(state); continue;
-      }
-      const underlying = document.elementsFromPoint(left + width / 2, top + height / 2).find(e => e !== this.overlay?.host);
-      if (!underlying || !state.tile.contains(underlying)) { this.hideTile(state); continue; }
-      state.button.style.left = `${Math.round(left)}px`; state.button.style.top = `${Math.round(top)}px`;
-      if (wasHidden) this.renewDemand(state);
-      if (wasHidden && state.state && canResumeOnDemand(state.state, Date.now())) {
-        state.requested = false; state.retries = 0;
-      }
+      this.renewDemand(state);
       if (!state.requested) this.queueLookup(state);
     }
     this.overlay.positionPanel();
@@ -418,7 +401,7 @@ export class ContentController {
 
   private removeTile(state: TileState): void {
     state.generation++; clearTimeout(state.timer); this.intersection?.unobserve(state.tile);
-    this.overlay?.closeFor(state.button); state.button.remove(); this.tiles.delete(state.tile);
+    this.overlay?.closeFor(state.button); state.mount.dispose(); this.tiles.delete(state.tile);
     this.releaseTitle(state.observation.ref);
   }
 
@@ -451,7 +434,7 @@ export class ContentController {
     document.removeEventListener('visibilitychange', this.visibility);
     window.removeEventListener('online', this.online);
     window.removeEventListener('popstate', this.visibility);
-    window.removeEventListener('scroll', this.reposition, true);
+    window.removeEventListener('scroll', this.scroll, true);
     window.removeEventListener('resize', this.reposition);
   }
 }
