@@ -59,7 +59,7 @@ export class Overlay {
 
   createBadge(container: HTMLElement, title: string, open: (button: HTMLButtonElement) => void): BadgeMount {
     const host = element('div'); host.dataset.scRoot = 'badge';
-    host.dataset.scRenderer = 'native-0.2.1';
+    host.dataset.scRenderer = 'native-0.2.2';
     const root = host.attachShadow({ mode: 'open' });
     const style = element('style'); style.textContent = badgeStyles; root.append(style);
     const previous = container.style.getPropertyValue('position');

@@ -1,6 +1,6 @@
 {
   "name": "stream-companion",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "A modular companion for streaming. V1 adds IMDb ratings to Netflix.",
   "type": "module",

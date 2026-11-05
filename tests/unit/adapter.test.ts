@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { netflixAdapter, netflixTitleId } from '../../src/platforms/netflix';
+import { netflixAdapter, netflixPreviewTitleId, netflixTitleId } from '../../src/platforms/netflix';
 import { badgeText } from '../../src/features/ratings/presentation';
 import { automaticRetryDelay, canResumeOnDemand } from '../../src/features/ratings/recovery';
 
 describe('Netflix page identity boundary', () => {
+  it('reads a hover preview title link independently of its episode Play link', () => {
+    expect(netflixPreviewTitleId('/title/81748089?dpRightClick=1&trackId=264188152')).toBe('81748089');
+    expect(netflixPreviewTitleId('/watch/82024258?trackId=264188152')).toBeNull();
+  });
+  it.each(['/title/not-an-id', '/title/1234567890123', '/title/12/episode/34', '/browse?jbv=12',
+    'https://www.netflix.com.evil.test/title/12', 'http://www.netflix.com/title/12',
+    'https://credential@www.netflix.com/title/12'])('rejects unsafe preview identity %s', href => {
+    expect(netflixPreviewTitleId(href)).toBeNull();
+  });
   it('reads the inspected title-level browse links', () => {
     expect(netflixTitleId('/browse?jbv=70136129')).toBe('70136129');
     expect(netflixTitleId('/browse/my-list?jbv=492899')).toBe('492899');

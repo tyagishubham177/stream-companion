@@ -1,4 +1,4 @@
-import { rpc } from '../shared/client';
+import { ExtensionContextInvalidatedError, extensionContextAlive, rpc } from '../shared/client';
 import { observationFingerprint } from '../shared/identity';
 import { titleKey, type Broadcast, type LookupResult, type LookupState, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
 import { adapterFor } from '../platforms/registry';
@@ -6,6 +6,7 @@ import type { StreamingPlatformAdapter } from '../platforms/contracts';
 import { Overlay, type BadgeMount } from './overlay';
 import { automaticRetryDelay, canResumeOnDemand } from '../features/ratings/recovery';
 import { DAY_MS, ratingCacheState } from '../shared/freshness';
+import { showReconnectNotice } from './reconnect';
 
 interface TileState {
   tile: HTMLElement;
@@ -44,6 +45,7 @@ export class ContentController {
   private statusRetries = 0;
   private statusRequest = 0;
   private destroyed = false;
+  private contextInvalidated = false;
 
   private readonly reposition = (): void => {
     if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.position(); });
@@ -107,7 +109,8 @@ export class ContentController {
       this.statusRetries = 0;
       clearTimeout(this.statusTimer); this.statusTimer = undefined;
       this.reconcile(); this.reposition();
-    } catch {
+    } catch (error) {
+      if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       if (request !== this.statusRequest || this.destroyed || document.hidden) return;
       // Losing the worker connection must stop loading and never leave a fabricated score.
       for (const tile of this.tiles.values()) if (!tile.state) {
@@ -128,6 +131,7 @@ export class ContentController {
 
   private reconcile(): void {
     if (this.destroyed) return;
+    if (!extensionContextAlive()) { this.disconnect(); return; }
     const url = new URL(location.href);
     const adapter = adapterFor(url);
     const navigation = this.routeKey(url);
@@ -232,7 +236,12 @@ export class ContentController {
       const mount = this.overlay.createBadge(container, observation.displayTitle, () => {
         const state = this.tiles.get(tile); if (state) this.open(state);
       });
-      const state: TileState = { tile, button: mount.button, mount, observation, fingerprint: observationFingerprint(observation), generation: 0, revision: 0, visible: false, state: this.initialState(), requested: false, retries: 0 };
+      const fingerprint = observationFingerprint(observation);
+      const shared = [...this.tiles.values()].find(other => other.fingerprint === fingerprint &&
+        (other.state?.kind === 'rated' || other.state?.kind === 'unrated') && ratingCacheState(other.state.record) === 'fresh');
+      const state: TileState = { tile, button: mount.button, mount, observation, fingerprint, generation: 0,
+        revision: shared?.revision ?? 0, visible: false, state: shared?.state ?? this.initialState(),
+        requested: !!shared, retries: 0, checkedAt: shared?.checkedAt };
       this.overlay.updateBadge(state.button, observation, state.state);
       this.tiles.set(tile, state); this.intersection?.observe(tile);
     }
@@ -267,7 +276,10 @@ export class ContentController {
   }
 
   private release(ref?: PlatformTitleRef): void {
-    void rpc({ type: 'RELEASE_DEMAND', ...(ref ? { ref } : {}) }).catch(() => {
+    if (this.contextInvalidated) return;
+    if (!extensionContextAlive()) { this.disconnect(); return; }
+    void rpc({ type: 'RELEASE_DEMAND', ...(ref ? { ref } : {}) }).catch(error => {
+      if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       // Releasing demand is best effort across extension reloads; persisted leases remain bounded.
       if (!this.warnedReleaseFailure) {
         this.warnedReleaseFailure = true;
@@ -356,6 +368,7 @@ export class ContentController {
       if (!refresh) this.scheduleRetry(state);
       this.reposition();
     } catch (error) {
+      if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       if (!this.accepts(state, generation, fingerprint, epoch)) return;
       state.state = { kind: 'deferred', reason: 'provider', message: error instanceof Error ? error.message : 'Unable to connect to the rating service.' };
       this.overlay?.updateBadge(state.button, state.observation, state.state);
@@ -389,8 +402,8 @@ export class ContentController {
     if (!this.overlay) return;
     const obscured = this.adapter?.isObscured() || document.hidden;
     for (const state of this.tiles.values()) {
-      if (state.mount.host.dataset.corner !== this.status?.settings.corner)
-        state.mount.host.dataset.corner = this.status?.settings.corner ?? 'top-right';
+      const corner = this.adapter?.badgeCorner?.(state.tile) ?? this.status?.settings.corner ?? 'top-right';
+      if (state.mount.host.dataset.corner !== corner) state.mount.host.dataset.corner = corner;
       if (obscured || !state.visible || !state.tile.isConnected || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) { this.hideTile(state); continue; }
       state.button.hidden = false;
       this.renewDemand(state);
@@ -427,10 +440,19 @@ export class ContentController {
     };
   }
 
+  private disconnect(): void {
+    if (this.destroyed) return;
+    const notify = this.adapter?.supports(new URL(location.href));
+    this.contextInvalidated = true;
+    this.dispose();
+    if (notify) showReconnectNotice();
+  }
+
   dispose(): void {
+    if (this.destroyed) return;
     this.destroyed = true; this.detach(); clearTimeout(this.statusTimer); clearInterval(this.routeTimer);
     if (this.frame) cancelAnimationFrame(this.frame);
-    chrome.runtime.onMessage.removeListener(this.message);
+    if (!this.contextInvalidated && extensionContextAlive()) chrome.runtime.onMessage.removeListener(this.message);
     document.removeEventListener('visibilitychange', this.visibility);
     window.removeEventListener('online', this.online);
     window.removeEventListener('popstate', this.visibility);

@@ -1,15 +1,15 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.2.1. The installed automatic-ID update has passed both the updated automated suite and the live-profile readback described below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.2.2. The installed automatic-ID update has passed both the updated automated suite and the live-profile readback described below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 189 tests passed across seven files |
+| `npm test` | 207 tests passed across eight files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Seven actual MV3 integration tests passed |
+| `npm run test:browser` | Nine actual MV3 integration tests passed |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -21,13 +21,21 @@ The MV3 suite launches the built extension in a disposable persistent profile. I
 
 Version 0.2 additionally verifies that all three visible fixture cards, including a Continue Watching variant and a duplicate, receive a score or NR automatically without opening any Netflix title. Two unique works share one Wikidata batch and two OMDb detail calls; duplicate cards share the score request. Forty-three source-provider tests and 26 direct-resolution tests cover batching, conflicting/malformed identities, endpoint failures, cache/circuit separation, source revalidation, native-browser fetch behavior, manual priority, concurrent compatible observations and reset/correction races.
 
-Version 0.2.1 adds a continuous-scroll regression: 40 same-frame measurements during simultaneous vertical scrolling, nested horizontal scrolling and fractional carousel translation keep badge offsets at eight CSS pixels. The score never changes to loading, and provider/identity request counts do not increase. Automatic panel dismissal preserves scroll position and never focuses a Netflix anchor; explicit Escape returns focus to the badge. Click/double-click/Enter/Space do not activate playback. Native clipping, complete host teardown, restoration of owned positioning, preservation of later platform styles and re-enable without a fetch are also verified. Live-profile verification of this renderer is pending extension reload.
+Version 0.2.1 adds a continuous-scroll regression: 40 same-frame measurements during simultaneous vertical scrolling, nested horizontal scrolling and fractional carousel translation keep badge offsets at eight CSS pixels. The score never changes to loading, and provider/identity request counts do not increase. Automatic panel dismissal preserves scroll position and never focuses a Netflix anchor; explicit Escape returns focus to the badge. Click/double-click/Enter/Space do not activate playback. Native clipping, complete host teardown, restoration of owned positioning, preservation of later platform styles and re-enable without a fetch are also verified. Live Netflix checks after refreshing the page confirmed native-0.2.1, 8px card/badge offsets across multiple scroll positions, numeric ratings on newly revealed rows, no Netflix navigation/detail modal from badge clicks, and dismissal of the rating panel on scrolling. See the screenshot below.
 
 Public feasibility queries found one direct IMDb candidate for 55 of 61 sampled Netflix IDs. This measures mapping availability, not numeric-score coverage or a labelled correctness corpus. See [automatic matching notes](Automatic_Ratings_v0_2.md).
 
 Test provider responses use explicitly synthetic titles and a fake key. Network routing plus loopback DNS isolation prevents fixture work from reaching real OMDb/Netflix accounts. Browser test data is not compiled into the production extension. Tests do not establish provider response freshness or real catalogue precision.
 
 ## Live evidence and remaining acceptance
+
+### Native scrolling and reload lifecycle
+
+![Live Netflix badges after scrolling](images/netflix-scroll-stability.jpg)
+
+The user reported Chrome's retained warning: `Page demand could not be released. Reconnect by reloading the page.` The still-open Netflix page contained the old fixed overlay with connection-lost states after extension reload. Refreshing Netflix loaded the native renderer and restored automatic cached ratings. Version 0.2.2 distinguishes an invalidated extension context from ordinary worker/provider failures, stops the obsolete controller's observers/timers/listeners, removes old badges and offers one Refresh Netflix notice. Genuine failures with a valid extension context remain reportable. Ten client lifecycle tests distinguish obsolete contexts, ordinary message failures and provider errors. The MV3 regression performs a real runtime reload and verifies one reconnect notice, no warning/error logs, no remount during 30 scroll/mutation frames, and Refresh Netflix recovery with the key, cache, mappings and usage preserved and no new provider/source fetches. Headless Chromium disables the command-line-loaded extension during runtime.reload; a disposable helper extension in the fake test profile uses the documented [management.setEnabled API](https://developer.chrome.com/docs/extensions/reference/api/management#method-setEnabled) to restore that same extension before testing Refresh Netflix. The helper and its management permission are removed with the test profile and are never packaged. The key and cache stay in extension storage.
+
+Version 0.2.2 also recognizes the inspected expanded hover dialog `[data-uia="modal-motion-container-MINI_MODAL"]`. It uses its unique `/title/:id` link plus consistent scoped artwork alt text; episode Play URLs are excluded. A card-relative badge at the upper left avoids native controls and immediately reuses an identical fresh on-page rating. Contradictory or absent identity fails closed. The MV3 preview regression verifies the matching score, top-left placement, no new fetch, safe click/keyboard behavior, conflicting-ID cleanup and preview removal. Live verification of these 0.2.2 additions is pending the final extension/page reload.
 
 ### Automatic ratings update
 

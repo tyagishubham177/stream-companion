@@ -41,7 +41,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.2.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.2.2.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, accept the added Wikidata host access if prompted, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
 
@@ -51,7 +51,7 @@ For the installed unpacked copy, reload Stream Companion at `chrome://extensions
 2. On Home, Search and My List, open badge details with keyboard Enter/Space, then Escape. Check that badge actions do not start playback.
 3. Choose and confirm a known film/series. Verify duplicate cards update and the match survives a tab reload and browser restart.
 4. Scroll, open/close title details, navigate back/forward, and check that recycled cards keep their own rating.
-5. Scroll vertically and move carousels: badges should remain attached to cards, clip with their row, and keep completed ratings. Open a badge then scroll: the panel should close without jumping the page. Disable/re-enable ratings. Try cache-only mode and 200% browser zoom. Verify playback/account pages have no overlays.
+5. Scroll vertically and move carousels: badges should remain attached to cards, clip with their row, and keep completed ratings. Hover to expand a card and check that its rating remains visible at the upper left. Open a badge then scroll: the panel should close without jumping the page. Disable/re-enable ratings. Try cache-only mode and 200% browser zoom. Verify playback/account pages have no overlays.
 6. Review provider usage and separate cache/match/key actions in Settings. Send only redacted diagnostics if troubleshooting.
 
 Browse cards often lack release year/type. Version 0.2 resolves their public Netflix IDs automatically, rather than guessing from title popularity. If a unique ID mapping is absent, actual movie details can still supply evidence for the strict fallback. Series dates remain conservative. Modern browse and Continue Watching selectors were inspected on 5 November 2026; unrecognized layouts fail closed.
@@ -78,3 +78,5 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 Mappings use platform + title identity. Rating caches distinguish external identity, source and provider. New platforms do not inherit another platform's corrections. Add an adapter and exact host permissions when implementing the next supported service; no runtime plugin framework is required.
 
 The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. No production backend, telemetry, login, private Netflix API or remote executable code is included. Ratings are attributed to IMDb via OMDb; automatic source IDs come from Wikidata, which receives public Netflix IDs but never your API key. Public distribution needs provider-rights and product-name checks.
+
+After reloading or updating the extension in Chrome, refresh the Netflix tab too. A disconnected script stops and offers **Refresh Netflix**; it does not reload a playing page automatically. Chrome may retain older warning entries under Errors until you clear them.

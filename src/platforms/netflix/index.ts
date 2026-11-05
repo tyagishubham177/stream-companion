@@ -3,6 +3,7 @@ import { normaliseTitle } from '../../shared/identity';
 
 const CARD = 'a:is([data-uia="standard-card"],[data-uia="progress-card"])[aria-label]';
 const MODAL = '[data-uia="modal-motion-container-DETAIL_MODAL"]';
+const PREVIEW = '[data-uia="modal-motion-container-MINI_MODAL"]';
 const TITLE_ID = /^\d{1,12}$/;
 
 export function netflixTitleId(href: string, base = 'https://www.netflix.com'): string | null {
@@ -16,14 +17,27 @@ export function netflixTitleId(href: string, base = 'https://www.netflix.com'): 
   } catch { return null; }
 }
 
+export function netflixPreviewTitleId(href: string): string | null {
+  try {
+    const url = new URL(href, 'https://www.netflix.com');
+    if (url.origin !== 'https://www.netflix.com' || url.username || url.password) return null;
+    return url.pathname.match(/^\/title\/(\d{1,12})$/)?.[1] ?? null;
+  } catch { return null; }
+}
+
 export const netflixAdapter: StreamingPlatformAdapter = {
   id: 'netflix', version: 2,
   supports(url) {
     return url.origin === 'https://www.netflix.com' &&
       (['/browse', '/search', '/browse/my-list'].includes(url.pathname) || /^\/browse\/genre\/\d+$/.test(url.pathname));
   },
-  findTiles(root) { return Array.from(root.querySelectorAll<HTMLElement>(CARD)); },
+  findTiles(root) { return Array.from(root.querySelectorAll<HTMLElement>(`${CARD},${PREVIEW}`)); },
   badgeContainer(tile) {
+    if (tile.matches(PREVIEW)) {
+      return tile.tagName === 'DIV' && tile.getAttribute('role') === 'dialog' &&
+        !tile.closest('a,button,[role="button"],[role="link"]') &&
+        tile.querySelectorAll('[data-uia="previewModal--player_container"]').length === 1 ? tile : null;
+    }
     // Inspected standard/progress cards have a plain, card-sized DIV wrapper.
     // Fail closed on changed markup; never nest controls in a playback link.
     const parent = tile.parentElement;
@@ -35,10 +49,27 @@ export const netflixAdapter: StreamingPlatformAdapter = {
       Math.abs(card.right - wrapper.right) > 1 || Math.abs(card.bottom - wrapper.bottom) > 1) return null;
     return parent;
   },
+  // The native close control/Netflix mark occupies the preview's upper right.
+  badgeCorner(tile) { return tile.matches(PREVIEW) ? 'top-left' : undefined; },
   observeTitle(tile) {
-    if (!tile.matches(CARD) || tile.closest(MODAL)) return null;
-    const titleId = netflixTitleId(tile.getAttribute('href') ?? '');
-    const displayTitle = tile.getAttribute('aria-label')?.replace(/\s+/g, ' ').trim();
+    if (tile.closest(MODAL)) return null;
+    let titleId: string | null;
+    let displayTitle: string | undefined;
+    if (tile.matches(PREVIEW)) {
+      // A preview's Play URL may identify an episode. Only its title-level link
+      // and scoped artwork label establish the work shown in the preview.
+      const ids = new Set(Array.from(tile.querySelectorAll('a[href]')).flatMap(a => {
+        const id = netflixPreviewTitleId(a.getAttribute('href') ?? ''); return id ? [id] : [];
+      }));
+      const labels = Array.from(tile.querySelectorAll<HTMLImageElement>('[data-uia="previewModal--player_container"] img[alt]'))
+        .map(image => image.alt.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      if (ids.size !== 1 || new Set(labels.map(normaliseTitle)).size !== 1) return null;
+      titleId = [...ids][0]; displayTitle = labels[0];
+    } else {
+      if (!tile.matches(CARD)) return null;
+      titleId = netflixTitleId(tile.getAttribute('href') ?? '');
+      displayTitle = tile.getAttribute('aria-label')?.replace(/\s+/g, ' ').trim();
+    }
     if (!titleId || !displayTitle || displayTitle.length > 300 || /[\u0000-\u001f]/.test(displayTitle)) return null;
     return { ref: { platformId: 'netflix', titleId }, displayTitle, mediaType: 'unknown', adapterVersion: 2 };
   },
