@@ -2,7 +2,7 @@ import type { FilmCredits } from './edition';
 
 export const PROTOCOL_VERSION = 1;
 export const RESOLVER_VERSION = 4;
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const PRODUCT_NAME = 'Stream Companion';
 
 export interface PlatformTitleRef { platformId: string; titleId: string }
@@ -26,6 +26,7 @@ export interface RatingRecord {
 }
 export interface Candidate { id: string; title: string; year: string; mediaType: 'movie' | 'series' }
 export interface SearchResult { candidates: Candidate[]; total: number; page: number }
+export interface CorrectionSearchResult extends SearchResult { searchId: string }
 export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
@@ -50,7 +51,7 @@ export interface PublicStatus {
 }
 export interface AppStatus extends PublicStatus {
   requests24h: number; automaticLimit: number; totalLimit: number;
-  mappings: number; ratings: number;
+  mappings: number; ratings: number; matchingLogFailed: boolean;
 }
 export interface SavedMatch { ref: PlatformTitleRef; displayTitle: string; imdbId: string; revision: number }
 export interface CorrectionContext { id: string; observation: TitleObservation; revision: number }
@@ -71,13 +72,15 @@ export type Request =
   | { type: 'REMOVE_API_KEY' }
   | { type: 'GET_CONTEXT'; contextId: string }
   | { type: 'SEARCH_MATCHES'; contextId: string; query: string; page: number }
-  | { type: 'PREVIEW_MATCH'; contextId: string; input: string }
+  | { type: 'PREVIEW_MATCH'; contextId: string; input: string; searchId?: string }
   | { type: 'CONFIRM_MATCH'; contextId: string; previewId: string }
   | { type: 'LIST_MATCHES' }
   | { type: 'REMOVE_MATCH'; ref: PlatformTitleRef; revision: number }
   | { type: 'RESET_MATCHES' }
   | { type: 'CLEAR_RATING_CACHE' }
-  | { type: 'EXPORT_DIAGNOSTICS' };
+  | { type: 'EXPORT_DIAGNOSTICS' }
+  | { type: 'EXPORT_MATCHING_LOG' }
+  | { type: 'CLEAR_MATCHING_LOG' };
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
 export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number };
 export const DEFAULT_SETTINGS: Settings = { enabled: true, corner: 'top-right', cacheOnly: false };

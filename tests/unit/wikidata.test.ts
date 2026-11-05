@@ -93,7 +93,12 @@ describe('visible-demand batching and source caching', () => {
     const demand = vi.fn(() => active);
     const first = resolver.resolve(ref(), demand);
     await vi.waitFor(() => expect(demand).toHaveBeenCalled(), { interval: 5 });
-    const second = resolver.resolve(ref(), () => true);
+    let joined!: () => void;
+    const attached = new Promise<void>(resolve => { joined = resolve; });
+    const second = resolver.resolve(ref(), () => { joined(); return true; });
+    // resolve() reads IndexedDB before registering demand. Wait for attachment
+    // (or an already completed cached result) before cancelling the first consumer.
+    await Promise.race([attached, second]);
     active = false;
     expect((await first).kind).toBe('matched');
     expect((await second).kind).toBe('matched');

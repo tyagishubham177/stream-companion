@@ -3,6 +3,7 @@ import type { AppStatus, SavedMatch } from '../shared/contracts';
 import { action, element, imdbLink, message, notice } from './ui';
 
 let currentStatus: AppStatus | undefined;
+let matchingReviewGeneration = 0;
 const keyInput = element<HTMLInputElement>('api-key');
 const enabled = element<HTMLInputElement>('enabled');
 const cacheOnly = element<HTMLInputElement>('cache-only');
@@ -26,6 +27,7 @@ function renderStatus(status: AppStatus, updatePreferences = false): void {
   element<HTMLButtonElement>('remove-key').disabled = !status.keyConfigured;
   element('usage').textContent = `${status.requests24h} / ${status.totalLimit} local limit`;
   element('rating-count').textContent = String(status.ratings);
+  element('matching-log-health').hidden = !status.matchingLogFailed;
 }
 
 async function refreshStatus(updatePreferences = false): Promise<void> {
@@ -158,10 +160,46 @@ element<HTMLButtonElement>('diagnostics').addEventListener('click', () => {
   });
 });
 
+element<HTMLButtonElement>('review-matching-log').addEventListener('click', () => {
+  const generation = ++matchingReviewGeneration;
+  void action(element<HTMLButtonElement>('review-matching-log'), async () => {
+    const report = await rpc<{ summary: { events: number; confirmed: number; confirmedSearchResults: number; confirmedFirstResults: number }; events: unknown[] }>({ type: 'EXPORT_MATCHING_LOG' });
+    if (generation !== matchingReviewGeneration) return;
+    element('matching-log-summary').textContent = `${report.summary.events} records · ${report.summary.confirmed} confirmed matches · ${report.summary.confirmedFirstResults} first-result confirmations out of ${report.summary.confirmedSearchResults} search selections.`;
+    element('matching-log-preview').textContent = JSON.stringify(report, null, 2);
+    element('matching-log-review').hidden = false;
+    element<HTMLButtonElement>('download-matching-log').disabled = false;
+    notice('Matching log ready to review. It contains title names and your correction searches.');
+  });
+});
+element<HTMLButtonElement>('download-matching-log').addEventListener('click', () => {
+  const text = element('matching-log-preview').textContent;
+  if (!text) return;
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `stream-companion-matching-log-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  notice('Matching log downloaded. Nothing has been uploaded.');
+});
+element<HTMLButtonElement>('clear-matching-log').addEventListener('click', () => {
+  if (!window.confirm('Delete the local matching log and expire open correction sessions? Saved matches, ratings and your key will remain.')) return;
+  matchingReviewGeneration++;
+  void action(element<HTMLButtonElement>('clear-matching-log'), async () => {
+    await rpc({ type: 'CLEAR_MATCHING_LOG' });
+    element('matching-log-preview').textContent = '';
+    element('matching-log-review').hidden = true;
+    element('matching-log-summary').textContent = 'Matching log cleared. New matching activity will create new records.';
+    element<HTMLButtonElement>('download-matching-log').disabled = true;
+    notice('Matching log cleared. Open a new correction from Netflix if needed.');
+  });
+});
+
 void (async () => {
   try {
     await Promise.all([refreshStatus(true), refreshMatches()]);
-    for (const id of ['save-key', 'save-preferences', 'clear-cache', 'diagnostics']) element<HTMLButtonElement>(id).disabled = false;
+    for (const id of ['save-key', 'save-preferences', 'clear-cache', 'diagnostics', 'review-matching-log', 'clear-matching-log']) element<HTMLButtonElement>(id).disabled = false;
     notice('');
   } catch (error) { notice(message(error), true); }
 })();

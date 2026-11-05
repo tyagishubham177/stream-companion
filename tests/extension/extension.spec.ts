@@ -1,7 +1,10 @@
 import { test, expect, chromium, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Reply } from '../../src/shared/contracts';
+import type { Reply, SearchResult, TitleObservation } from '../../src/shared/contracts';
+import type { MatchEvent } from '../../src/background/matching-log';
+
+interface MatchingExport { events: MatchEvent[]; summary: { confirmed: number; confirmedFirstResults: number } }
 
 let context: BrowserContext;
 let base: string;
@@ -73,6 +76,14 @@ async function launch(): Promise<void> {
       if (providerMode === 'quota') return route.fulfill({ json: { Response: 'False', Error: 'Request limit reached!' } });
       const id = url.searchParams.get('i');
       const query = url.searchParams.get('s');
+      if (query === 'Fixture Paged Search') {
+        const page = Number(url.searchParams.get('page'));
+        const start = page === 2 ? 11 : 1;
+        const length = page === 2 ? 2 : 10;
+        return route.fulfill({ json: { Response: 'True', totalResults: '12', Search: Array.from({ length }, (_, index) => ({
+          Title: `Fixture Page Result ${start + index}`, Year: '2020', Type: 'movie', imdbID: `tt${6000000 + start + index}`,
+        })) } });
+      }
       const edition = editionFixtures.find(fixture => fixture.title === query || fixture.base === query);
       if (edition) {
         expect(url.searchParams.get('y')).toBe('2026'); expect(url.searchParams.get('type')).toBe('movie');
@@ -174,6 +185,18 @@ test('all visible cards resolve automatically without opening titles; correction
   await expect(correction.locator('#preview-score')).toHaveText('8.2');
   await correction.getByRole('button', { name: 'Confirm this match', exact: true }).click();
   await expect(correction.locator('#notice')).toContainText('Match saved');
+  const correctionId = new URL(correction.url()).searchParams.get('context');
+  const matchingLog = await command<MatchingExport>(options, { type: 'EXPORT_MATCHING_LOG' });
+  const chain = matchingLog.events.filter(event => event.sessionId === correctionId);
+  expect(chain.map(event => event.kind)).toEqual(['opened', 'search', 'preview', 'confirmed']);
+  const confirmed = chain.find(event => event.kind === 'confirmed')!;
+  expect(confirmed.selection).toMatchObject({ query: 'Fixture Orbit', page: 1, position: 1, rank: 1, total: 2 });
+  expect(confirmed.automatic?.outcome).toEqual({ kind: 'rated', imdbId: 'tt1234567' });
+  expect(confirmed.automatic?.id).toBe(chain[0].automatic?.id);
+  expect(confirmed.candidate?.id).toBe('tt1234567');
+  const aggregate = await command(options, { type: 'EXPORT_DIAGNOSTICS' });
+  expect(JSON.stringify(aggregate)).not.toMatch(/fixture_only|Fixture Orbit|tt1234567|sessionId|searchId/);
+  expect(JSON.stringify(matchingLog)).not.toMatch(/fixture_only|apikey|authorization|documentId|tabId/);
   await correction.screenshot({ path: 'test-results/correction.png', fullPage: true });
   await browse.bringToFront();
   await expect(badges.filter({ hasText: '8.2' })).toHaveCount(2);
@@ -200,6 +223,150 @@ test('all visible cards resolve automatically without opening titles; correction
   await browse.evaluate(() => history.pushState(null, '', '/browse'));
   await expect(browse.locator('.badge:visible')).toHaveCount(3);
   await browse.close(); await correction.close();
+});
+
+test('matching history links unresolved titles to confirmed choices and rejects invalid labels', async () => {
+  // All storage below belongs to the disposable synthetic profile. Preserve earlier fixture
+  // identities so later scrolling/cache tests continue checking the same four identities.
+  const snapshot = await options.evaluate(async () => await new Promise<{ mappings: unknown[]; epoch: unknown }>((resolve, reject) => {
+    const open = indexedDB.open('stream-companion'); open.onerror = () => reject(new Error('Fixture database failed'));
+    open.onsuccess = () => {
+      const db = open.result, tx = db.transaction(['mappings', 'state']);
+      const mappings = tx.objectStore('mappings').getAll(), epoch = tx.objectStore('state').get('mappingEpoch');
+      tx.oncomplete = () => { db.close(); resolve({ mappings: mappings.result, epoch: epoch.result }); };
+      tx.onerror = () => { db.close(); reject(new Error('Fixture snapshot failed')); };
+    };
+  }));
+  const pages: Page[] = [];
+  const observation: TitleObservation = { ref: { platformId: 'netflix', titleId: '1201' }, displayTitle: 'Fixture Manual Missing', mediaType: 'unknown', adapterVersion: 2 };
+  const exportLog = () => command<MatchingExport>(options, { type: 'EXPORT_MATCHING_LOG' });
+  async function seedContext(id: string, titleId: string): Promise<Page> {
+    await options.evaluate(async ({ id, observation, titleId }) => await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('stream-companion'); open.onerror = () => reject(new Error('Fixture database failed'));
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction(['contexts', 'state'], 'readwrite');
+        const epoch = tx.objectStore('state').get('mappingEpoch');
+        epoch.onsuccess = () => tx.objectStore('contexts').put({ key: id, value: { id,
+          observation: { ...observation, ref: { ...observation.ref, titleId } }, revision: 0,
+          resetEpoch: epoch.result?.value ?? 0, expiresAt: Date.now() + 1800000 } });
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => { db.close(); reject(new Error('Fixture context failed')); };
+      };
+    }), { id, observation, titleId });
+    const page = await context.newPage(); pages.push(page); await page.goto(`${base}/correction.html?context=${id}`);
+    await expect(page.locator('#correction-workspace')).toBeVisible(); return page;
+  }
+  async function updateFixture(store: 'contexts' | 'mappings', key: string, patch: object): Promise<void> {
+    await options.evaluate(async ({ store, key, patch }) => await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('stream-companion'); open.onerror = () => reject(new Error('Fixture database failed'));
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction(store, 'readwrite'), table = tx.objectStore(store), request = table.get(key);
+        request.onsuccess = () => table.put({ key, value: { ...(request.result?.value ?? {}), ...patch } });
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => { db.close(); reject(new Error('Fixture update failed')); };
+      };
+    }), { store, key, patch });
+  }
+  try {
+    const browse = await context.newPage(); pages.push(browse); await browse.goto('https://www.netflix.com/browse');
+    await browse.locator('#row').evaluate(row => {
+      row.innerHTML = '<div class="tile" id="manual-missing"><a data-uia="standard-card" aria-label="Fixture Manual Missing" href="/browse?jbv=1201">Fixture Manual Missing</a></div>';
+    });
+    const missingBadge = browse.locator('#manual-missing [data-sc-root="badge"] .badge');
+    await expect(missingBadge).toHaveText('IMDb —');
+    await missingBadge.click();
+    const newPage = context.waitForEvent('page');
+    await browse.getByRole('button', { name: 'Find a match', exact: true }).click();
+    const correction = await newPage; pages.push(correction); await correction.waitForLoadState();
+    const contextId = new URL(correction.url()).searchParams.get('context')!;
+    await correction.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(correction.locator('#results li')).toHaveCount(2);
+    await correction.getByRole('button', { name: 'Preview Fixture Orbit, 2020', exact: true }).click();
+    await expect(correction.locator('#preview-score')).toHaveText('8.2');
+    expect((await exportLog()).events.filter(event => event.sessionId === contextId && event.kind === 'confirmed')).toEqual([]);
+    // Starting another search cannot rewrite the provenance of an already displayed preview.
+    await correction.locator('#query').fill('Another Fixture Search');
+    await correction.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(correction.locator('#search-summary')).toContainText('2 candidates');
+    await correction.getByRole('button', { name: 'Confirm this match', exact: true }).click();
+    await expect(correction.locator('#notice')).toContainText('Match saved');
+    await expect(missingBadge).toHaveText('★ IMDb 8.2');
+    const confirmed = (await exportLog()).events.find(event => event.sessionId === contextId && event.kind === 'confirmed')!;
+    expect(confirmed.selection).toMatchObject({ query: observation.displayTitle, page: 1, position: 1, rank: 1 });
+    expect(confirmed.automatic?.outcome).toMatchObject({ kind: 'needs_match', reason: 'not_found' });
+    expect(confirmed.automatic?.steps.some(step => step.stage === 'wikidata' && step.outcome === 'missing')).toBe(true);
+    expect(confirmed.automatic?.steps.some(step => step.stage === 'netflix_metadata' && step.outcome === 'missing')).toBe(true);
+    await expect(command(correction, { type: 'CONFIRM_MATCH', contextId, previewId: crypto.randomUUID() })).rejects.toThrow('expired');
+    expect((await exportLog()).events.filter(event => event.sessionId === contextId && event.kind === 'confirmed')).toHaveLength(1);
+    await browse.close();
+
+    const directId = crypto.randomUUID(), direct = await seedContext(directId, '1202');
+    const directPreview = await command<{ previewId: string }>(direct, { type: 'PREVIEW_MATCH', contextId: directId, input: 'https://www.imdb.com/title/tt1234567/?ref_=FIXTURE_PRIVATE' });
+    await command(direct, { type: 'CONFIRM_MATCH', contextId: directId, previewId: directPreview.previewId });
+    const directConfirmed = (await exportLog()).events.find(event => event.sessionId === directId && event.kind === 'confirmed')!;
+    expect(directConfirmed.selection).toBeUndefined();
+    expect(JSON.stringify(await exportLog())).not.toMatch(/FIXTURE_PRIVATE|fixture_only|apikey|authorization|documentId|tabId/);
+
+    const pagedId = crypto.randomUUID(), paged = await seedContext(pagedId, '1203');
+    const pageTwo = await command<SearchResult & { searchId: string }>(paged, { type: 'SEARCH_MATCHES', contextId: pagedId, query: 'Fixture Paged Search', page: 2 });
+    expect(pageTwo.candidates).toHaveLength(2);
+    const pagedPreview = await command<{ previewId: string }>(paged, { type: 'PREVIEW_MATCH', contextId: pagedId, input: pageTwo.candidates[1].id, searchId: pageTwo.searchId });
+    await command(paged, { type: 'CONFIRM_MATCH', contextId: pagedId, previewId: pagedPreview.previewId });
+    expect((await exportLog()).events.find(event => event.sessionId === pagedId && event.kind === 'confirmed')?.selection)
+      .toMatchObject({ query: 'Fixture Paged Search', page: 2, position: 2, rank: 12, total: 12 });
+
+    await options.getByRole('button', { name: 'Review matching log', exact: true }).click();
+    await expect(options.locator('#matching-log-summary')).toContainText('4 confirmed matches');
+    await options.locator('#matching-log-review summary').click();
+    await expect(options.locator('#matching-log-preview')).toContainText('Fixture Manual Missing');
+    const reviewed = await options.locator('#matching-log-preview').textContent();
+    const downloadEvent = options.waitForEvent('download');
+    await options.getByRole('button', { name: 'Download matching log', exact: true }).click();
+    const downloaded = await downloadEvent;
+    expect(downloaded.suggestedFilename()).toMatch(/^stream-companion-matching-log-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(await readFile((await downloaded.path())!, 'utf8')).toBe(reviewed);
+    await options.locator('#matching-log-review').screenshot({ path: 'test-results/matching-log-review.png' });
+
+    const staleId = crypto.randomUUID(), stale = await seedContext(staleId, '1204');
+    const stalePreview = await command<{ previewId: string }>(stale, { type: 'PREVIEW_MATCH', contextId: staleId, input: 'tt1234567' });
+    await updateFixture('mappings', JSON.stringify(['netflix', '1204']), { revision: 1 });
+    await expect(command(stale, { type: 'CONFIRM_MATCH', contextId: staleId, previewId: stalePreview.previewId })).rejects.toThrow('match changed');
+    const expiredId = crypto.randomUUID(), expired = await seedContext(expiredId, '1205');
+    const expiredPreview = await command<{ previewId: string }>(expired, { type: 'PREVIEW_MATCH', contextId: expiredId, input: 'tt1234567' });
+    await updateFixture('contexts', expiredId, { expiresAt: Date.now() - 1 });
+    await expect(command(expired, { type: 'CONFIRM_MATCH', contextId: expiredId, previewId: expiredPreview.previewId })).rejects.toThrow('expired');
+    const resetId = crypto.randomUUID(), reset = await seedContext(resetId, '1206');
+    const resetPreview = await command<{ previewId: string }>(reset, { type: 'PREVIEW_MATCH', contextId: resetId, input: 'tt1234567' });
+    await command(options, { type: 'RESET_MATCHES' });
+    await expect(command(reset, { type: 'CONFIRM_MATCH', contextId: resetId, previewId: resetPreview.previewId })).rejects.toThrow('match changed');
+    const invalidIds = new Set<string>([staleId, expiredId, resetId]);
+    expect((await exportLog()).events.filter(event => event.kind === 'confirmed' && invalidIds.has(event.sessionId ?? ''))).toEqual([]);
+
+    const clearId = crypto.randomUUID(), clear = await seedContext(clearId, '1207');
+    const clearPreview = await command<{ previewId: string }>(clear, { type: 'PREVIEW_MATCH', contextId: clearId, input: 'tt1234567' });
+    const before = await command<{ mappings: number; ratings: number; requests24h: number; keyConfigured: boolean }>(options, { type: 'GET_STATUS' });
+    options.once('dialog', dialog => { void dialog.accept(); });
+    await options.getByRole('button', { name: 'Clear matching log', exact: true }).click();
+    await expect(options.locator('#notice')).toContainText('Matching log cleared');
+    await expect(options.locator('#matching-log-review')).toBeHidden();
+    await expect(options.locator('#matching-log-preview')).toHaveText('');
+    expect((await exportLog()).events).toEqual([]);
+    const after = await command<typeof before>(options, { type: 'GET_STATUS' });
+    for (const field of ['mappings', 'ratings', 'requests24h', 'keyConfigured'] as const) expect(after[field]).toBe(before[field]);
+    await expect(command(clear, { type: 'CONFIRM_MATCH', contextId: clearId, previewId: clearPreview.previewId })).rejects.toThrow('expired');
+    expect((await exportLog()).events).toEqual([]);
+  } finally {
+    for (const page of pages) if (!page.isClosed()) await page.close();
+    await options.evaluate(async snapshot => await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('stream-companion'); open.onerror = () => reject(new Error('Fixture database failed'));
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction(['mappings', 'state', 'contexts'], 'readwrite');
+        tx.objectStore('mappings').clear();
+        for (const entry of snapshot.mappings) tx.objectStore('mappings').put(entry);
+        if (snapshot.epoch) tx.objectStore('state').put(snapshot.epoch); else tx.objectStore('state').delete('mappingEpoch');
+        tx.objectStore('contexts').clear();
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => { db.close(); reject(new Error('Fixture restore failed')); };
+      };
+    }), snapshot);
+  }
 });
 
 test('badges follow native scrolling and transforms without flicker, focus jumps or playback', async () => {

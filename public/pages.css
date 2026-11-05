@@ -3,3 +3,6 @@
 @media(max-width:720px){.page-shell{padding:0 24px}.page-brand{min-height:90px}.page-heading{padding-top:34px}.settings-layout{grid-template-columns:1fr;gap:22px}.settings-nav{position:static;flex-direction:row;gap:18px;overflow:auto;padding:0 0 10px;white-space:nowrap}.correction-layout{grid-template-columns:1fr;gap:28px}.preview-panel{order:-1}.page-footer{flex-wrap:wrap}.section-heading{gap:12px}.input-action{flex-wrap:wrap}.input-action input{flex:1 1 180px}.input-action button{flex:0 0 auto}.data-summary>div{align-items:flex-start}.popup-page{width:360px}.popup-page .input-action{flex-wrap:nowrap}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
 @media(forced-colors:active){button,input:not([type=checkbox]),select,.preview-panel,.brand-mark,.tag{border:1px solid ButtonText}.switch-track{background:Canvas;border-color:ButtonText}.switch-track::before{background:ButtonText}.switch input:checked+.switch-track{background:Highlight}.switch input:checked+.switch-track::before{background:HighlightText}}
+
+.matching-log-section { margin-top: 28px; }
+.matching-log-preview { max-height: 360px; overflow: auto; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

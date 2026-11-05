@@ -1,15 +1,15 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.1. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.4.0. Matching-log verification uses a disposable synthetic MV3 profile; installed live Netflix proof below remains v0.3.1 until the user reloads. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 395 tests passed across twelve files |
+| `npm test` | 423 tests passed across fifteen files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Eleven actual MV3 integration tests passed |
+| `npm run test:browser` | Twelve actual MV3 integration tests passed |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -26,6 +26,14 @@ Version 0.2.1 adds a continuous-scroll regression: 40 same-frame measurements du
 Public feasibility queries found one direct IMDb candidate for 55 of 61 sampled Netflix IDs. This measures mapping availability, not numeric-score coverage or a labelled correctness corpus. See [automatic matching notes](Automatic_Ratings_v0_2.md).
 
 Test provider responses use explicitly synthetic titles and a fake key. Network routing plus loopback DNS isolation prevents fixture work from reaching real OMDb/Netflix accounts. Browser test data is not compiled into the production extension. Tests do not establish provider response freshness or real catalogue precision.
+
+## Matching evidence verification (0.4.0)
+
+423 unit tests across fifteen files and all twelve real-MV3 browser tests passed. The 28 new unit cases cover exact observation/revision/epoch correlation, candidate rejection checks, repeated-cache deduplication, persistence, v1→v2 storage migration, 30-day/1,000-record limits, atomic rollback and old-generation write rejection during Clear. An existing duplicate-demand test now waits for its second async consumer to attach (or receive a cached result) before cancelling the first; its outcome assertions are unchanged. This removes a test scheduling race exposed during the complete run.
+
+The browser suite verifies an unresolved source title followed by manual search/preview/confirmation; saved rank-one provenance survives a later search, direct IMDb URL input records no invented rank or raw URL, and page-two position two records rank 12. Duplicate, stale, expired and reset-conflicting confirmations create no false labels. Settings Review displays the local JSON; Download was read back byte-for-byte against that reviewed snapshot. Clear was exercised through its actual confirmation UI and removes the snapshot/records/contexts while preserving key, mappings, ratings and request accounting. Prior scrolling, expanded-hover, metadata/edition, cache/restart and runtime-reload regressions all passed. Narrow Settings and the expanded JSON/download disclosure were visually inspected.
+
+Build/typecheck/diff checks passed, and ZIP readback confirmed 14 entries, version 0.4.0, storage as the only ordinary permission, required scripts/pages and no fixture/helper/profile files. This establishes the local diagnostic feature using synthetic data; it does not claim new live catalogue match coverage. Existing installed Netflix evidence below remains explicitly labelled 0.3.1. Reloading the installed extension and refreshing Netflix is required to begin collecting real correction logs. No prior search history is invented.
 
 ## Live evidence and remaining acceptance
 

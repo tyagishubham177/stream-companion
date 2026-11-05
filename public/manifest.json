@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Companion",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Useful context while browsing streaming. V1: IMDb ratings on Netflix with your OMDb key.",
   "minimum_chrome_version": "120",
   "permissions": ["storage"],

@@ -1,11 +1,11 @@
 import { rpc } from '../shared/client';
-import type { CorrectionContext, LookupResult, RatingRecord, SearchResult } from '../shared/contracts';
+import type { CorrectionContext, CorrectionSearchResult, LookupResult, RatingRecord } from '../shared/contracts';
 import { dateLabel, element, imdbLink, message, notice } from './ui';
 
 interface Preview { previewId: string; record: RatingRecord }
 let context: CorrectionContext | undefined;
 let selected: Preview | undefined;
-let searchState: SearchResult | undefined;
+let searchState: CorrectionSearchResult | undefined;
 let lastQuery = '';
 let busy = false;
 let saved = false;
@@ -27,7 +27,7 @@ async function perform(task: () => Promise<void>): Promise<void> {
   finally { busy = false; updateControls(); }
 }
 
-async function preview(input: string): Promise<void> {
+async function preview(input: string, searchId?: string): Promise<void> {
   if (!context) throw new Error('Open match correction from a streaming title to continue.');
   notice('Loading the title preview…');
   selected = undefined;
@@ -35,7 +35,7 @@ async function preview(input: string): Promise<void> {
   element('preview-heading').textContent = 'Loading preview…';
   element('preview-hint').hidden = false;
   element('preview-hint').textContent = 'Checking the selected IMDb title with OMDb.';
-  const result = await rpc<Preview>({ type: 'PREVIEW_MATCH', contextId: context.id, input }).catch(error => {
+  const result = await rpc<Preview>({ type: 'PREVIEW_MATCH', contextId: context.id, input, ...(searchId ? { searchId } : {}) }).catch(error => {
     element('preview-heading').textContent = 'Preview unavailable';
     element('preview-hint').textContent = 'Check the status message, then try a candidate or IMDb title ID again.';
     throw error;
@@ -56,7 +56,7 @@ async function preview(input: string): Promise<void> {
 async function search(query: string, page: number): Promise<void> {
   if (!context) throw new Error('Open match correction from a streaming title to continue.');
   notice('Searching OMDb…');
-  const result = await rpc<SearchResult>({ type: 'SEARCH_MATCHES', contextId: context.id, query, page });
+  const result = await rpc<CorrectionSearchResult>({ type: 'SEARCH_MATCHES', contextId: context.id, query, page });
   lastQuery = query;
   searchState = result;
   const list = element<HTMLUListElement>('results');
@@ -76,7 +76,7 @@ async function search(query: string, page: number): Promise<void> {
     button.className = 'secondary';
     button.textContent = 'Preview';
     button.setAttribute('aria-label', `Preview ${candidate.title}, ${candidate.year}`);
-    button.addEventListener('click', () => { void perform(() => preview(candidate.id)); });
+    button.addEventListener('click', () => { void perform(() => preview(candidate.id, result.searchId)); });
     item.append(copy, button);
     list.append(item);
   }
