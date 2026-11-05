@@ -1,13 +1,14 @@
 import type { PlatformTitleRef } from '../shared/contracts';
 import { normaliseTitle } from '../shared/identity';
+import { validateFilmCredits, type FilmCredits } from '../shared/edition';
 import { Repository, txGet, txPut } from '../background/repository';
 
 export type NetflixMetadataResult =
-  | { kind: 'matched'; title: string; mediaType: 'movie'; year: number; checkedAt: number }
+  | { kind: 'matched'; title: string; mediaType: 'movie'; year: number; checkedAt: number; credits?: FilmCredits }
   | { kind: 'missing' }
   | { kind: 'deferred'; reason: 'busy' | 'offline' | 'provider'; message: string; retryAfter?: number };
 type CachedMetadata = Exclude<NetflixMetadataResult, { kind: 'deferred' }>;
-interface MetadataCache { expiresAt: number; result: CachedMetadata }
+interface MetadataCache { expiresAt: number; result: CachedMetadata; creditsChecked?: boolean }
 interface SourceState { nextAt: number; leaseUntil: number; leaseId?: string; failures: number; cooldownUntil: number; lastClock: number }
 interface Job { key: string; titleId: string; demands: Set<() => boolean>; promise: Promise<NetflixMetadataResult>; complete(value: NetflixMetadataResult): void }
 const DAY = 86400000;
@@ -59,6 +60,24 @@ function schemaTypes(value: unknown): string[] {
   return (Array.isArray(value) ? value : [value]).filter((type): type is string => typeof type === 'string')
     .map(type => type.replace(/^https?:\/\/schema\.org\//, ''));
 }
+function movieCredits(movie: Record<string, unknown>): FilmCredits | undefined {
+  const people = (value: unknown): string[] | undefined => {
+    const entries = Array.isArray(value) ? value : [value];
+    if (entries.length > 40 || entries.some(entry => !object(entry) || !schemaTypes(entry['@type']).includes('Person') || typeof entry.name !== 'string')) return undefined;
+    return entries.map(entry => (entry as Record<string, unknown>).name as string);
+  };
+  const role = (singular: string, plural: string): string[] | undefined => {
+    const fields = [singular, plural].filter(field => Object.hasOwn(movie, field));
+    if (!fields.length) return undefined;
+    const lists = fields.map(field => people(movie[field]));
+    if (lists.some(list => !list)) return undefined;
+    const signatures = lists.map(list => JSON.stringify([...new Set(list!.map(normaliseTitle))].sort()));
+    return new Set(signatures).size === 1 ? lists[0] : undefined;
+  };
+  // Netflix publishes plural roles; accept standard singular roles too, but never infer a director from creators.
+  const directors = role('director', 'directors'), actors = role('actor', 'actors');
+  return directors && actors ? validateFilmCredits({ directors, actors }) : undefined;
+}
 function validCache(value: unknown, now: number): value is MetadataCache {
   if (!object(value) || !Number.isFinite(value.expiresAt) || Number(value.expiresAt) <= now || !object(value.result)) return false;
   const result = value.result;
@@ -66,6 +85,7 @@ function validCache(value: unknown, now: number): value is MetadataCache {
   return result.kind === 'matched' && result.mediaType === 'movie' && typeof result.title === 'string' &&
     result.title.length <= 300 && !!normaliseTitle(result.title) && !/[\u0000-\u001f]/.test(result.title) &&
     Number.isInteger(result.year) && Number(result.year) >= 1888 && Number(result.year) <= new Date(now).getUTCFullYear() + 1 &&
+    (result.credits === undefined || !!validateFilmCredits(result.credits)) &&
     Number.isFinite(result.checkedAt) && Number(result.checkedAt) <= now && Number(value.expiresAt) <= Number(result.checkedAt) + 30 * DAY;
 }
 
@@ -116,7 +136,10 @@ export function parseNetflixMetadata(html: string, requestedId: string, now = Da
   const year = Number(yearText);
   if (!/^\d{4}$/.test(yearText) || year < 1888 || year > new Date(now).getUTCFullYear() + 1)
     throw new MetadataFailure('The public movie release year was not available.');
-  return { kind: 'matched', title, mediaType: 'movie', year, checkedAt: now };
+  // Duplicate bound nodes must agree on credits; missing/conflicting optional credits cannot establish an edition match.
+  const available = movies.map(movieCredits);
+  const credits = available.every(value => value && JSON.stringify(value) === JSON.stringify(available[0])) ? available[0] : undefined;
+  return { kind: 'matched', title, mediaType: 'movie', year, checkedAt: now, ...(credits ? { credits } : {}) };
 }
 
 function retryTime(response: Response): number | undefined {
@@ -135,13 +158,13 @@ export class NetflixMetadataResolver {
     private readonly getEligibility: () => Promise<{ enabled: boolean; cacheOnly: boolean }>,
     private readonly fetcher = fetch) {}
 
-  async resolve(ref: PlatformTitleRef, demand: () => boolean): Promise<NetflixMetadataResult> {
+  async resolve(ref: PlatformTitleRef, demand: () => boolean, requireCredits = false): Promise<NetflixMetadataResult> {
     if (ref.platformId !== 'netflix') return { kind: 'missing' };
     if (typeof ref.titleId !== 'string' || !ID.test(ref.titleId)) return deferred('provider', 'The Netflix title identity was invalid.');
     const key = cacheKey(ref.titleId);
     try {
       const cached = await this.repo.get<MetadataCache>('resolutions', key);
-      if (validCache(cached, Date.now())) return cached.result;
+      if (validCache(cached, Date.now()) && (!requireCredits || cached.result.kind !== 'matched' || cached.result.credits || cached.creditsChecked === true)) return cached.result;
       const settings = await this.getEligibility();
       if (!settings.enabled || settings.cacheOnly || !demand()) return deferred('busy', 'Automatic title matching is paused or the title is no longer visible.');
       if (offline()) return deferred('offline', 'Offline. Public title metadata will be retried when connected.');
@@ -249,7 +272,7 @@ export class NetflixMetadataResolver {
         }
         result = parseNetflixMetadata(html, job.titleId); break;
       }
-      await this.repo.put('resolutions', job.key, { expiresAt: result.kind === 'matched' ? result.checkedAt + 30 * DAY : Date.now() + DAY, result } satisfies MetadataCache);
+      await this.repo.put('resolutions', job.key, { expiresAt: result.kind === 'matched' ? result.checkedAt + 30 * DAY : Date.now() + DAY, result, creditsChecked: true } satisfies MetadataCache);
       await this.finish(lease, 'success'); lease = undefined; return result;
     } catch (error) {
       if (error instanceof MetadataFailure) {

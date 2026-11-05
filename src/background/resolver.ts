@@ -1,5 +1,6 @@
-import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState } from '../shared/contracts';
-import { contradicts, hasStrongEvidence, observationFingerprint, supportedCandidate, usableYear } from '../shared/identity';
+import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState, type Candidate, type SearchResult } from '../shared/contracts';
+import { contradicts, hasStrongEvidence, normaliseTitle, observationFingerprint, supportedCandidate, usableYear } from '../shared/identity';
+import { corroboratesEdition, editionTitleMatches, filmSearchAlias, validateFilmCredits } from '../shared/edition';
 import { ratingCacheState } from '../shared/freshness';
 import { parseDetail, parseSearch, ProviderError } from '../providers/omdb';
 import { Repository, txGet, txPut } from './repository';
@@ -10,7 +11,7 @@ import type { NetflixMetadataResult } from '../providers/netflix-metadata';
 
 interface Resolution { expiresAt: number; state?: LookupState; attempts: number }
 interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
-interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<NetflixMetadataResult> }
+interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean, requireCredits?: boolean): Promise<NetflixMetadataResult> }
 export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
@@ -69,7 +70,7 @@ export class Resolver {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if (current?.method === 'automatic' && current.provenance?.source === 'netflix' && current.revision === mapping?.revision &&
           (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) === resetEpoch)
-          txPut(tx, 'mappings', titleKey(o.ref), { ...current, revision: current.revision + 1, provenance: { source: 'netflix', checkedAt } });
+          txPut(tx, 'mappings', titleKey(o.ref), { ...current, revision: current.revision + 1, provenance: { ...current.provenance, checkedAt } });
       });
     }
     // A temporary source outage does not invalidate a previously supported identity/cache.
@@ -81,7 +82,7 @@ export class Resolver {
         return { kind: 'needs_match', reason: 'contradiction' };
       cache = await this.repo.get<RatingRecord>('ratings', ratingKey(mapping.subject));
       if (cache && contradicts(o, cache)) return { kind: 'needs_match', reason: 'contradiction' };
-      if (cache && !refresh && ratingCacheState(cache) === 'fresh') return stateFromRecord(cache, mapping.method, mapping.provenance?.source);
+      if (cache && !refresh && ratingCacheState(cache) === 'fresh') return stateFromMapping(cache, mapping);
       if (settings.cacheOnly) return cachedOrDeferred(cache, mapping.method, new DeferredError('provider', 'Cache-only mode is on. Turn it off in Settings to fetch ratings.'));
       if (!(await this.config.credential())) return cachedOrSetup(cache, mapping.method);
       try {
@@ -97,7 +98,7 @@ export class Resolver {
         const record = await this.scheduler.request({ i: id, plot: 'short' }, refresh, raw => parseDetail(raw, id, Date.now()), false, demand);
         await this.repo.put('ratings', ratingKey(record.subject), record);
         if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
-        return stateFromRecord(record, mapping.method, mapping.provenance?.source);
+        return stateFromMapping(record, mapping);
       } catch (error) { return cachedOrDeferred(cache, mapping.method, error); }
     }
     if (refresh) return { kind: 'needs_match', reason: 'insufficient_evidence' };
@@ -130,7 +131,7 @@ export class Resolver {
           if (accepted) return stateFromRecord(record, 'automatic', 'wikidata');
           const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
           return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
-            ? stateFromRecord(record, 'automatic', winner.provenance?.source) : { kind: 'needs_match', reason: 'contradiction' };
+            ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
         } catch (error) {
           if (error instanceof ProviderError && ['not_found', 'identity'].includes(error.kind)) {
             const state: LookupState = { kind: 'needs_match', reason: error.kind === 'identity' ? 'contradiction' : 'not_found' };
@@ -182,39 +183,79 @@ export class Resolver {
         throw error;
       }
     };
+    const search = async (title: string): Promise<SearchResult> => {
+      try { return await automaticRequest({ s: title, y: String(usableYear(evidence)), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1)); }
+      catch (error) {
+        if (error instanceof ProviderError && error.kind === 'not_found') return { candidates: [], total: 0, page: 1 };
+        throw error;
+      }
+    };
     try {
-      const result = await automaticRequest({ s: evidence.displayTitle, y: String(usableYear(evidence)), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1));
+      const result = await search(evidence.displayTitle);
       // An incomplete candidate set cannot establish a unique identity.
       if (result.total > result.candidates.length) return await save({ kind: 'needs_match', reason: 'ambiguous' });
-      const candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
+      let candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
+      let creditMatch = false;
+      const alias = metadataMatch ? filmSearchAlias(metadataMatch.title) : null;
+      const base = alias ?? evidence.displayTitle;
+      const editionCandidate = (candidate: Candidate): boolean => candidate.mediaType === 'movie' && /^\d{4}$/.test(candidate.year) &&
+        Number(candidate.year) === usableYear(evidence) && editionTitleMatches(base, candidate.title) && !mapping?.rejected.includes(candidate.id);
+      if (candidates.length === 0 && metadataMatch && this.metadata) {
+        candidates = result.candidates.filter(editionCandidate);
+        if (!candidates.length && alias) {
+          const alternate = await search(alias);
+          if (alternate.total > alternate.candidates.length) return await save({ kind: 'needs_match', reason: 'ambiguous' });
+          candidates = alternate.candidates.filter(editionCandidate);
+        }
+        if (candidates.length === 1) {
+          if (!corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
+            const upgrade = await this.metadata.resolve(o.ref, demand, true);
+            if (upgrade.kind === 'deferred') return upgrade;
+            if (upgrade.kind !== 'matched' || upgrade.year !== metadataMatch.year ||
+              normaliseTitle(upgrade.title) !== normaliseTitle(metadataMatch.title))
+              return await save({ kind: 'needs_match', reason: 'contradiction' });
+            metadataMatch = upgrade;
+          }
+          if (!corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) return await save({ kind: 'needs_match', reason: 'insufficient_evidence' });
+          creditMatch = true;
+        }
+      }
       if (candidates.length !== 1) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
       const selectedId = candidates[0].id;
       const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: selectedId }));
-      const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
+      const record = cached && ratingCacheState(cached) === 'fresh' && (!creditMatch || validateFilmCredits(cached.credits)) ? cached :
         await automaticRequest({ i: selectedId, plot: 'short' }, raw => parseDetail(raw, selectedId, Date.now()));
       await this.repo.put('ratings', ratingKey(record.subject), record);
-      if (!supportedCandidate(evidence, { id: record.subject.id, title: record.title, year: record.year, mediaType: record.mediaType })) return await save({ kind: 'needs_match', reason: 'contradiction' });
+      const verified = creditMatch ? editionCandidate({ id: record.subject.id, title: record.title, year: record.year, mediaType: record.mediaType }) &&
+        corroboratesEdition(metadataMatch?.credits, record.credits) : supportedCandidate(evidence, { id: record.subject.id, title: record.title, year: record.year, mediaType: record.mediaType });
+      if (!verified) return await save({ kind: 'needs_match', reason: 'contradiction' });
+      if (creditMatch) evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
       const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
           evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
-          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt } } : {}) } satisfies Mapping);
+          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
         return true;
       });
-      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined);
+      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined, creditMatch ? 'credits' : undefined);
       const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
       return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
-        ? stateFromRecord(record, 'automatic', winner.provenance?.source) : { kind: 'needs_match', reason: 'contradiction' };
+        ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
     } catch (error) {
       if (error instanceof ProviderError && error.kind === 'not_found') return await save({ kind: 'needs_match', reason: 'not_found' });
       return cachedOrDeferred(undefined, 'automatic', error);
     }
   }
 }
-export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | 'netflix'): LookupState {
-  if (record.score === null) return { kind: 'unrated', record, ...(identitySource ? { identitySource } : {}) };
-  return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...(identitySource ? { identitySource } : {}) };
+export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | 'netflix', matchBasis?: 'credits'): LookupState {
+  const source = { ...(identitySource ? { identitySource } : {}), ...(matchBasis ? { matchBasis } : {}) };
+  if (record.score === null) return { kind: 'unrated', record, ...source };
+  return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...source };
+}
+function stateFromMapping(record: RatingRecord, mapping: Mapping): LookupState {
+  return stateFromRecord(record, mapping.method, mapping.provenance?.source,
+    mapping.provenance?.source === 'netflix' ? mapping.provenance.matchBasis : undefined);
 }
 function cachedOrSetup(cache: RatingRecord | undefined, method: 'manual' | 'automatic'): LookupState {
   if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);

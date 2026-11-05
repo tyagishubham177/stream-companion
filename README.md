@@ -2,7 +2,7 @@
 
 A personal Chrome extension with generic streaming branding and a modular platform boundary. **V1 adds IMDb ratings and title matching to Netflix.** The data provider is OMDb; you supply your own key in extension Settings.
 
-**0.3 update:** visible cards and expanded hover previews resolve automatically. Direct Netflix-to-IMDb mappings are checked first; films without those links can now use Netflix’s public title, release year and movie type for a strict OMDb match. Opening each title is unnecessary. Corrections remain optional, and ambiguous matches remain unresolved.
+**0.3.1 update:** visible cards and expanded hover previews resolve automatically. Direct Netflix-to-IMDb mappings are checked first; films without those links can now use Netflix’s public title, release year and movie type for a strict OMDb match. Edition and language-label variants can additionally use corroborated year, director and cast evidence. Opening each title is unnecessary. Corrections remain optional, and ambiguous matches remain unresolved.
 
 The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This local release candidate has passed an initial live Netflix/OMDb check on Search and My List; broader catalogue acceptance remains open. See `docs/verification.md` for the exact evidence and limits.
 
@@ -41,7 +41,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.3.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.3.1.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow Netflix public-title-page access if Chrome requests it, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
 
@@ -55,6 +55,8 @@ For the installed unpacked copy, reload Stream Companion at `chrome://extensions
 6. Review provider usage and separate cache/match/key actions in Settings. Send only redacted diagnostics if troubleshooting.
 
 Browse cards often lack release year/type. Version 0.2 resolves their public Netflix IDs automatically, rather than guessing from title popularity. If the direct ID relationship is missing, a cookie-free public Netflix film page now supplies release-year/type evidence for the strict fallback. This improves coverage for films such as Hindi titles without weakening remake checks. Series dates remain conservative. Modern browse and Continue Watching selectors were inspected on 5 November 2026; unrecognized layouts fail closed.
+
+The [catalogue audit](docs/Catalogue_Coverage_Audit.md) records 12 English/Hindi/genre/theme/actor searches and separates naming gaps, series evidence, ambiguity and NR states.
 
 ## Caching
 

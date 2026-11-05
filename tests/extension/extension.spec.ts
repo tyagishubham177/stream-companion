@@ -12,9 +12,21 @@ const identityRequests: URL[] = [];
 const publicTitleRequests: Array<{ url: URL; headers: Record<string, string>; worker: boolean }> = [];
 const networkFailures: Array<{ host: string; method: string; error: string | null }> = [];
 let providerMode: 'normal' | 'quota' = 'normal';
-const details = (id: string) => ({ Response: 'True', Title: id === 'tt4000004' ? 'Fixture Hindi Film' : id === 'tt0133093' ? 'Fixture Reference' : id === 'tt7654321' ? 'Fixture Dunes' : 'Fixture Orbit',
+const editionFixtures = [
+  { id: '1006', title: 'Fixture Revenge (Raw & Undekha)', base: 'Fixture Revenge', candidate: 'Fixture: Revenge', imdbId: 'tt4000006', director: 'Director Fixture', actors: 'Actor One, Actor Two, Actor Three', total: 1 },
+  { id: '1007', title: 'Fixture Counterfeit (Extended Cut)', base: 'Fixture Counterfeit', candidate: 'Fixture: Counterfeit', imdbId: 'tt4000007', director: 'Director Other', actors: 'Actor One, Actor Two, Actor Three', total: 1 },
+  { id: '1008', title: 'Fixture Castless (Uncut)', base: 'Fixture Castless', candidate: 'Fixture: Castless', imdbId: 'tt4000008', director: 'Director Fixture', actors: 'Actor One, Actor Three', total: 1 },
+  { id: '1009', title: 'Fixture Legacy (Raw & Undekha)', base: 'Fixture Legacy', candidate: 'Fixture: Legacy II', imdbId: 'tt4000009', director: 'Director Fixture', actors: 'Actor One, Actor Two, Actor Three', total: 1 },
+  { id: '1010', title: 'Fixture Hidden (Extended Edition)', base: 'Fixture Hidden', candidate: 'Fixture: Hidden', imdbId: 'tt4000010', director: 'Director Fixture', actors: 'Actor One, Actor Two, Actor Three', total: 2 },
+];
+const details = (id: string) => {
+  const edition = editionFixtures.find(fixture => fixture.imdbId === id);
+  if (edition) return { Response: 'True', Title: edition.candidate, Year: '2026', Type: 'movie', imdbID: id,
+    imdbRating: '9.2', imdbVotes: '1,234', Director: edition.director, Actors: edition.actors };
+  return { Response: 'True', Title: id === 'tt4000004' ? 'Fixture Hindi Film' : id === 'tt0133093' ? 'Fixture Reference' : id === 'tt7654321' ? 'Fixture Dunes' : 'Fixture Orbit',
   Year: id === 'tt4000004' ? '2012' : id === 'tt0133093' ? '1999' : '2020', Type: 'movie', imdbID: id,
-  imdbRating: id === 'tt4000004' ? '9.1' : id === 'tt7654321' ? 'N/A' : '8.2', imdbVotes: '1,234' });
+  imdbRating: id === 'tt4000004' ? '9.1' : id === 'tt7654321' ? 'N/A' : '8.2', imdbVotes: '1,234' };
+};
 
 async function command<T>(page: Page, request: object): Promise<T> {
   const reply = await page.evaluate(async request => await chrome.runtime.sendMessage({ protocol: 1, ...request }), request) as Reply<T>;
@@ -61,6 +73,14 @@ async function launch(): Promise<void> {
       if (providerMode === 'quota') return route.fulfill({ json: { Response: 'False', Error: 'Request limit reached!' } });
       const id = url.searchParams.get('i');
       const query = url.searchParams.get('s');
+      const edition = editionFixtures.find(fixture => fixture.title === query || fixture.base === query);
+      if (edition) {
+        expect(url.searchParams.get('y')).toBe('2026'); expect(url.searchParams.get('type')).toBe('movie');
+        if (query === edition.title) return route.fulfill({ json: { Response: 'False', Error: 'Movie not found!' } });
+        return route.fulfill({ json: { Response: 'True', totalResults: String(edition.total), Search: [
+          { Title: edition.candidate, Year: '2026', Type: 'movie', imdbID: edition.imdbId },
+        ] } });
+      }
       if (query === 'Fixture Hindi Film' || query === 'Fixture Remake') {
         expect(url.searchParams.get('y')).toBe('2012'); expect(url.searchParams.get('type')).toBe('movie');
         return route.fulfill({ json: { Response: 'True', totalResults: '1', Search: [{
@@ -80,11 +100,14 @@ async function launch(): Promise<void> {
         publicTitleRequests.push({ url, headers, worker: !!route.request().serviceWorker() });
         expect(headers.cookie).toBeUndefined(); expect(headers.authorization).toBeUndefined(); expect(headers.referer).toBeUndefined();
         expect(url.searchParams.has('apikey')).toBe(false); expect(JSON.stringify(headers)).not.toContain('fixture_only');
-        if (titleId !== '1004' && titleId !== '1005') return route.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Unavailable fixture title</h1>' });
-        const title = titleId === '1004' ? 'Fixture Hindi Film' : 'Fixture Remake';
+        const edition = editionFixtures.find(fixture => fixture.id === titleId);
+        if (!edition && titleId !== '1004' && titleId !== '1005') return route.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Unavailable fixture title</h1>' });
+        const title = edition?.title ?? (titleId === '1004' ? 'Fixture Hindi Film' : 'Fixture Remake');
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
           '@context': 'https://schema.org', '@type': 'Movie', url: url.href, name: title,
-        })}</script></head><body><div data-uia="metadata"><h2>${title}</h2><ul><li>2012</li><li>2h</li></ul></div></body></html>` });
+          ...(edition ? { directors: [{ '@type': 'Person', name: 'Director Fixture' }],
+            actors: [{ '@type': 'Person', name: 'Actor One' }, { '@type': 'Person', name: 'Actor Two' }] } : {}),
+        })}</script></head><body><div data-uia="metadata"><h2>${title}</h2><ul><li>${edition ? '2026' : '2012'}</li><li>2h</li></ul></div></body></html>` });
       }
       return route.fulfill({ contentType: 'text/html', body: await readFile('tests/fixtures/browse.html', 'utf8') });
     }
@@ -367,6 +390,76 @@ test('public movie metadata fills missing Wikidata matches automatically and rej
   await context.clearCookies(); await browse.close();
 });
 
+test('edition aliases need matching director and two cast members before rating automatically', async () => {
+  const browse = await context.newPage(); await browse.goto('https://www.netflix.com/browse');
+  await expect(browse.locator('[data-sc-root="badge"] .badge').first()).toHaveText('★ IMDb 8.2');
+  const positive = editionFixtures[0];
+  // Simulate the prior public cache schema: its title/year remain fresh, but
+  // edition matching must upgrade it with credits before using a base alias.
+  await options.evaluate(async fixture => await new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open('stream-companion'); open.onerror = () => reject(new Error('Fixture database failed'));
+    open.onsuccess = () => {
+      const db = open.result, tx = db.transaction('resolutions', 'readwrite'), now = Date.now();
+      tx.objectStore('resolutions').put({ key: JSON.stringify(['netflix-metadata', 'netflix', fixture.id]), value: {
+        result: { kind: 'matched', title: fixture.title, mediaType: 'movie', year: 2026, checkedAt: now },
+        expiresAt: now + 30 * 86400000,
+      } });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(new Error('Fixture legacy cache write failed')); };
+    };
+  }), positive);
+  async function addCard(fixture: typeof positive, left = 48): Promise<void> {
+    await browse.evaluate(({ fixture, left }) => {
+      const wrapper = document.createElement('div'); wrapper.id = `edition-${fixture.id}`; wrapper.className = 'tile';
+      wrapper.style.cssText = `position:absolute;top:450px;left:${left}px;width:280px;height:165px`;
+      const anchor = document.createElement('a'); anchor.dataset.uia = 'standard-card';
+      anchor.href = `/browse?jbv=${fixture.id}`; anchor.setAttribute('aria-label', fixture.title); anchor.textContent = fixture.title;
+      wrapper.append(anchor); document.querySelector('main')!.append(wrapper);
+    }, { fixture, left });
+  }
+  const before = requests.length;
+  const publicBefore = publicTitleRequests.length;
+  await addCard(positive);
+  const badge = browse.locator(`#edition-${positive.id} [data-sc-root="badge"] .badge`);
+  await expect(badge).toHaveText('★ IMDb 9.2');
+  const editionCalls = requests.slice(before);
+  expect(editionCalls.map(url => url.searchParams.get('s')).filter(Boolean)).toEqual([positive.title, positive.base]);
+  expect(editionCalls).toHaveLength(3);
+  expect(editionCalls[2].searchParams.get('i')).toBe(positive.imdbId);
+  expect(publicTitleRequests.slice(publicBefore).map(request => request.url.pathname)).toEqual(['/in/title/1006']);
+  const cachedProvider = requests.length, cachedPublic = publicTitleRequests.length, cachedIdentity = identityRequests.length;
+  await browse.evaluate(fixture => {
+    const preview = document.createElement('div'); preview.id = 'edition-preview';
+    preview.dataset.uia = 'modal-motion-container-MINI_MODAL'; preview.setAttribute('role', 'dialog');
+    preview.style.cssText = 'position:absolute;top:450px;left:480px;width:360px;height:240px';
+    const link = document.createElement('a'); link.href = `/title/${fixture.id}?dpRightClick=1`;
+    const player = document.createElement('div'); player.dataset.uia = 'previewModal--player_container';
+    const image = document.createElement('img'); image.alt = fixture.title; image.width = 360; image.height = 200;
+    player.append(image); link.append(player); preview.append(link); document.body.append(preview);
+  }, positive);
+  await expect(browse.locator('#edition-preview [data-sc-root="badge"] .badge')).toHaveText('★ IMDb 9.2');
+  await browse.reload(); await addCard(positive);
+  await expect(badge).toHaveText('★ IMDb 9.2');
+  expect(requests.length).toBe(cachedProvider); expect(publicTitleRequests.length).toBe(cachedPublic);
+  expect(identityRequests.length).toBe(cachedIdentity);
+  for (const fixture of editionFixtures.slice(1)) {
+    const start = requests.length;
+    await addCard(fixture, 400);
+    const rejected = browse.locator(`#edition-${fixture.id} [data-sc-root="badge"] .badge`);
+    await expect(rejected).toHaveText('IMDb —');
+    const calls = requests.slice(start);
+    expect(calls.map(url => url.searchParams.get('s')).filter(Boolean)).toEqual([fixture.title, fixture.base]);
+    const shouldReadDetails = fixture.id === '1007' || fixture.id === '1008';
+    expect(calls.filter(url => url.searchParams.get('i') === fixture.imdbId)).toHaveLength(shouldReadDetails ? 1 : 0);
+    await browse.locator(`#edition-${fixture.id}`).evaluate(wrapper => wrapper.remove());
+  }
+  const saved = await command<Array<{ ref: { titleId: string } }>>(options, { type: 'LIST_MATCHES' });
+  expect(saved.filter(match => editionFixtures.some(fixture => fixture.id === match.ref.titleId)).map(match => match.ref.titleId)).toEqual(['1006']);
+  expect(browse.url()).toBe('https://www.netflix.com/browse');
+  expect(await browse.evaluate(() => (window as unknown as { playbackCount: number }).playbackCount)).toBe(0);
+  await browse.close();
+});
+
 test('age-aware caches avoid repeated fetches for a week or month and deduplicate refreshes', async () => {
   async function age(days: number, year: string): Promise<void> {
     await options.evaluate(async ({ days, year }) => await new Promise<void>((resolve, reject) => {
@@ -427,7 +520,7 @@ test('browser and worker restart preserve saved choices, key accounting and prov
   await launch();
   const after = await command<{ requests24h: number; mappings: number; keyConfigured: boolean; provider: { kind: string } }>(options, { type: 'GET_STATUS' });
   expect(after.requests24h).toBe(before.requests24h);
-  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(3); // Two direct IDs plus the public-metadata fallback.
+  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(4); // Two direct IDs, public metadata and one corroborated edition.
   expect(after.keyConfigured).toBe(true); expect(after.provider.kind).toBe('paused');
   const requestCount = requests.length;
   await expect(command(options, { type: 'TEST_API_KEY' })).rejects.toThrow('cooldown');

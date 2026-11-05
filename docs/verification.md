@@ -1,15 +1,15 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.0. The automated suite and public-page parser checks pass; live installed-rating verification for the new metadata fallback awaits extension reload. Earlier installed 0.2/0.2.2 evidence remains labelled below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.1. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback awaits reload. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 296 tests passed across ten files |
+| `npm test` | 395 tests passed across twelve files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Ten actual MV3 integration tests passed |
+| `npm run test:browser` | Eleven actual MV3 integration tests passed |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -29,13 +29,17 @@ Test provider responses use explicitly synthetic titles and a fake key. Network 
 
 ## Live evidence and remaining acceptance
 
+### Broad catalogue audit and edition matching (0.3.1)
+
+See [the audit report](Catalogue_Coverage_Audit.md) and its per-title JSON evidence. The baseline spans 12 searches,180 observations and 135 unique IDs:112 numeric,6 NR,17 unresolved, with no final pending/deferred states. The unresolved-source investigation separates4 edition/language labels,7 series without safe start-year evidence,2 ambiguous matches and 4 other film lookup gaps. Version 0.3.1 adds strictly corroborated edition/punctuation matching, optional public credits, legacy-credit cache upgrades and an underlying-film explanation in details. The isolated edition test cases verify that sequel terms, wrong directors, insufficient cast and incomplete candidate sets never produce an automatic score.
+
 ### Film coverage fallback (0.3)
 
 The user reported missing ratings for English Vinglish, Gully Boy and Baar Baar Dekho on Netflix Search for Hindi. The installed 0.2.2 page described all three as no automatic match, rather than an identified work with no score. Before updating, the inspected first 20 visible/partly visible search cards showed 7 numeric ratings, 2 NR states and 11 unresolved states. This is one viewport sample, not a language-wide measurement.
 
 ![Hindi search before the fallback](images/hindi-ratings-before.jpg)
 
-Credential-free source checks against the real public [English Vinglish](https://www.netflix.com/title/70259085), [Gully Boy](https://www.netflix.com/title/81060024) and [Baar Baar Dekho](https://www.netflix.com/title/80141883) pages passed the production parser and returned Movie identities and visible release years 2012, 2019 and 2016, respectively. Netflix's JSON-LD dateCreated for these pages was 2026-10-19; the parser deliberately ignores it and reads the visibly displayed release year instead. These public checks do not assert live OMDb scores.
+Credential-free source checks against the real public [English Vinglish](https://www.netflix.com/title/70259085), [Gully Boy](https://www.netflix.com/title/81060024) and [Baar Baar Dekho](https://www.netflix.com/title/80141883) pages passed the production parser and returned Movie identities and visible release years 2012, 2019 and 2016, respectively. Netflix's JSON-LD dateCreated for these pages was 2026-10-19; the parser deliberately ignores it and reads the visibly displayed release year instead. After installing 0.3.0, live badge details verified English Vinglish2012/tt2181931/7.8, Gully Boy2019/tt2395469/7.9 and Baar Baar Dekho2016/tt5197544/5.4. Their provenance was public Netflix film metadata. English Vinglish’s fetched time stayed 13:27:29 after reload and its expanded hover showed 7.8, verifying the cache and hover path. No Netflix title detail page or playback was opened to obtain these matches.
 
 The 54 source-provider cases cover same-ID identity binding, Movie-only release-year extraction, encoded names, malformed/conflicting markup, script/comment decoys, safe/opaque redirects, bounded HTML, credential omission, singleflight, cancellation, queue limits, strict caches, timeout, durable spacing/leases and cooldown/Retry-After. The 35 resolver cases cover the three named films with synthetic IMDb IDs/scores, canonical/localized labels, complete exact title/year/type uniqueness, remakes, detail contradictions, rejected candidates, manual/reset races, old-negative-cache upgrades, cache reuse and source revalidation. The new actual-MV3 case validates the automatic fallback with a synthetic film, ignores an account cookie already present in the fake Netflix profile, verifies no referrer/key reaches Netflix, reuses card/hover/cache results after reload without another fetch, and rejects a wrong-year remake.
 

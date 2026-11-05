@@ -1,5 +1,7 @@
+import type { FilmCredits } from './edition';
+
 export const PROTOCOL_VERSION = 1;
-export const RESOLVER_VERSION = 3;
+export const RESOLVER_VERSION = 4;
 export const SCHEMA_VERSION = 1;
 export const PRODUCT_NAME = 'Stream Companion';
 
@@ -20,6 +22,7 @@ export interface RatingRecord {
   source: 'imdb'; provider: 'omdb';
   title: string; year: string; mediaType: 'movie' | 'series';
   score: number | null; scale: 10; votes: number | null; fetchedAt: number;
+  credits?: FilmCredits;
 }
 export interface Candidate { id: string; title: string; year: string; mediaType: 'movie' | 'series' }
 export interface SearchResult { candidates: Candidate[]; total: number; page: number }
@@ -27,12 +30,12 @@ export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
   evidence: TitleObservation; resolverVersion: number; rejected: string[];
-  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: 'netflix'; checkedAt: number };
+  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: 'netflix'; checkedAt: number; matchBasis?: 'credits' };
 }
 export type DeferredReason = 'budget' | 'quota' | 'offline' | 'provider' | 'key' | 'storage' | 'busy' | 'clock';
 export type LookupState =
-  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | 'netflix' }
-  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | 'netflix' }
+  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | 'netflix'; matchBasis?: 'credits' }
+  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | 'netflix'; matchBasis?: 'credits' }
   | { kind: 'needs_match'; reason: 'insufficient_evidence' | 'ambiguous' | 'contradiction' | 'not_found' }
   | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string }
   | { kind: 'setup_required' }

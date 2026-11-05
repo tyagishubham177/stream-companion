@@ -1,0 +1,1170 @@
+{
+  "version": "0.3.0",
+  "scope": "First 15 search cards per query; 45-second per-query settle limit; account-specific sample",
+  "samples": [
+    {
+      "keyword": "english",
+      "cards": [
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        },
+        {
+          "badge": "★ IMDb 7.6",
+          "id": "80244928",
+          "reason": "The English Game: IMDb rating via OMDb. 7.6 out of 10. Open details",
+          "title": "The English Game"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "60026122",
+          "reason": "How to Lose a Guy in 10 Days: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "How to Lose a Guy in 10 Days"
+        },
+        {
+          "badge": "★ IMDb 5.9",
+          "id": "81287950",
+          "reason": "My Oxford Year: IMDb rating via OMDb. 5.9 out of 10. Open details",
+          "title": "My Oxford Year"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "81591296",
+          "reason": "Nobody Wants This: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Nobody Wants This"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "1181732",
+          "reason": "Devil's Advocate: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Devil's Advocate"
+        },
+        {
+          "badge": "★ IMDb 8.8",
+          "id": "70153404",
+          "reason": "Friends: IMDb rating via OMDb. 8.8 out of 10. Open details",
+          "title": "Friends"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "492899",
+          "reason": "Far and Away: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Far and Away"
+        },
+        {
+          "badge": "★ IMDb 4.9",
+          "id": "81678621",
+          "reason": "Fall for Me: IMDb rating via OMDb. 4.9 out of 10. Open details",
+          "title": "Fall for Me"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "81011159",
+          "reason": "Little Things: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Little Things"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70167075",
+          "reason": "Friends with Benefits: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "Friends with Benefits"
+        },
+        {
+          "badge": "★ IMDb 7.2",
+          "id": "80044251",
+          "reason": "English Only, Please: IMDb rating via OMDb. 7.2 out of 10. Open details",
+          "title": "English Only, Please"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "81754782",
+          "reason": "Salaar (English): No automatic IMDb match found yet. Open details",
+          "title": "Salaar (English)"
+        },
+        {
+          "badge": "★ IMDb 4.6",
+          "id": "20764666",
+          "reason": "English Babu Desi Mem: IMDb rating via OMDb. 4.6 out of 10. Open details",
+          "title": "English Babu Desi Mem"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=english"
+    },
+    {
+      "keyword": "space",
+      "cards": [
+        {
+          "badge": "★ IMDb 6.7",
+          "id": "81021929",
+          "reason": "Space Force: IMDb rating via OMDb. 6.7 out of 10. Open details",
+          "title": "Space Force"
+        },
+        {
+          "badge": "★ IMDb 5.7",
+          "id": "81301595",
+          "reason": "Spaceman: IMDb rating via OMDb. 5.7 out of 10. Open details",
+          "title": "Spaceman"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "80104198",
+          "reason": "Lost in Space: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "Lost in Space"
+        },
+        {
+          "badge": "★ IMDb 7.6",
+          "id": "81243961",
+          "reason": "Our Universe: IMDb rating via OMDb. 7.6 out of 10. Open details",
+          "title": "Our Universe"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81199139",
+          "reason": "Dune: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "Dune"
+        },
+        {
+          "badge": "★ IMDb 6.7",
+          "id": "81767886",
+          "reason": "Mickey 17: IMDb rating via OMDb. 6.7 out of 10. Open details",
+          "title": "Mickey 17"
+        },
+        {
+          "badge": "★ IMDb 7.2",
+          "id": "81473680",
+          "reason": "Unknown: Cosmic Time Machine: IMDb rating via OMDb. 7.2 out of 10. Open details",
+          "title": "Unknown: Cosmic Time Machine"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "81198930",
+          "reason": "Tenet: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "Tenet"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "81094067",
+          "reason": "Space Sweepers: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "Space Sweepers"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81612719",
+          "reason": "The Dinosaurs: Rating unavailable from OMDb. Open details",
+          "title": "The Dinosaurs"
+        },
+        {
+          "badge": "★ IMDb 6.7",
+          "id": "81309354",
+          "reason": "The Adam Project: IMDb rating via OMDb. 6.7 out of 10. Open details",
+          "title": "The Adam Project"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81288983",
+          "reason": "The Diplomat: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "The Diplomat"
+        },
+        {
+          "badge": "★ IMDb 5.7",
+          "id": "81321986",
+          "reason": "Stowaway: IMDb rating via OMDb. 5.7 out of 10. Open details",
+          "title": "Stowaway"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "81252357",
+          "reason": "Don't Look Up: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "Don't Look Up"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=space"
+    },
+    {
+      "keyword": "hindi",
+      "cards": [
+        {
+          "badge": "IMDb —",
+          "id": "83127937",
+          "reason": "Meethe Mein Kya Hai: No automatic IMDb match found yet. Open details",
+          "title": "Meethe Mein Kya Hai"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "81737430",
+          "reason": "The Great Indian Kapil Show: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Great Indian Kapil Show"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81288983",
+          "reason": "The Diplomat: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "The Diplomat"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "81011159",
+          "reason": "Little Things: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Little Things"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81772075",
+          "reason": "Akka: Rating unavailable from OMDb. Open details",
+          "title": "Akka"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "83124264",
+          "reason": "Matargashti: No automatic IMDb match found yet. Open details",
+          "title": "Matargashti"
+        },
+        {
+          "badge": "★ IMDb 7.9",
+          "id": "81060024",
+          "reason": "Gully Boy: IMDb rating via OMDb. 7.9 out of 10. Open details",
+          "title": "Gully Boy"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "70202336",
+          "reason": "Zindagi Na Milegi Dobara: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Zindagi Na Milegi Dobara"
+        },
+        {
+          "badge": "★ IMDb 7.0",
+          "id": "80057585",
+          "reason": "Dil Dhadakne Do: IMDb rating via OMDb. 7.0 out of 10. Open details",
+          "title": "Dil Dhadakne Do"
+        },
+        {
+          "badge": "★ IMDb 5.4",
+          "id": "80141883",
+          "reason": "Baar Baar Dekho: IMDb rating via OMDb. 5.4 out of 10. Open details",
+          "title": "Baar Baar Dekho"
+        },
+        {
+          "badge": "★ IMDb 4.9",
+          "id": "80159009",
+          "reason": "Rock On 2: IMDb rating via OMDb. 4.9 out of 10. Open details",
+          "title": "Rock On 2"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "82059219",
+          "reason": "Chumbak: Rating unavailable from OMDb. Open details",
+          "title": "Chumbak"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82813021",
+          "reason": "Dhurandhar The Revenge (Raw & Undekha): No automatic IMDb match found yet. Open details",
+          "title": "Dhurandhar The Revenge (Raw & Undekha)"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=hindi"
+    },
+    {
+      "keyword": "crime",
+      "cards": [
+        {
+          "badge": "★ IMDb 8.4",
+          "id": "81076756",
+          "reason": "Delhi Crime: IMDb rating via OMDb. 8.4 out of 10. Open details",
+          "title": "Delhi Crime"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81772075",
+          "reason": "Akka: Rating unavailable from OMDb. Open details",
+          "title": "Akka"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82051930",
+          "reason": "Crime Patrol: 26 Jurm, 26 Cases: No automatic IMDb match found yet. Open details",
+          "title": "Crime Patrol: 26 Jurm, 26 Cases"
+        },
+        {
+          "badge": "★ IMDb 8.4",
+          "id": "70281562",
+          "reason": "Brooklyn Nine-Nine: IMDb rating via OMDb. 8.4 out of 10. Open details",
+          "title": "Brooklyn Nine-Nine"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82112156",
+          "reason": "Desprotexida: El crimen de Pazos: No automatic IMDb match found yet. Open details",
+          "title": "Desprotexida: El crimen de Pazos"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "82137222",
+          "reason": "The Rainmaker: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "The Rainmaker"
+        },
+        {
+          "badge": "★ IMDb 6.8",
+          "id": "70196154",
+          "reason": "Unforgettable: IMDb rating via OMDb. 6.8 out of 10. Open details",
+          "title": "Unforgettable"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81288983",
+          "reason": "The Diplomat: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "The Diplomat"
+        },
+        {
+          "badge": "★ IMDb 8.1",
+          "id": "81437051",
+          "reason": "The Gentlemen: IMDb rating via OMDb. 8.1 out of 10. Open details",
+          "title": "The Gentlemen"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "70155590",
+          "reason": "The Mentalist: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "The Mentalist"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "80059015",
+          "reason": "Crime Patrol: City Crimes: No automatic IMDb match found yet. Open details",
+          "title": "Crime Patrol: City Crimes"
+        },
+        {
+          "badge": "★ IMDb 8.5",
+          "id": "70197042",
+          "reason": "Person of Interest: IMDb rating via OMDb. 8.5 out of 10. Open details",
+          "title": "Person of Interest"
+        },
+        {
+          "badge": "★ IMDb 7.9",
+          "id": "70281312",
+          "reason": "The Blacklist: IMDb rating via OMDb. 7.9 out of 10. Open details",
+          "title": "The Blacklist"
+        },
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "80994082",
+          "reason": "Lupin: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Lupin"
+        },
+        {
+          "badge": "★ IMDb 7.2",
+          "id": "80164904",
+          "reason": "Ittefaq: IMDb rating via OMDb. 7.2 out of 10. Open details",
+          "title": "Ittefaq"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=crime"
+    },
+    {
+      "keyword": "time",
+      "cards": [
+        {
+          "badge": "IMDb —",
+          "id": "82761735",
+          "reason": "Time: No automatic IMDb match found yet. Open details",
+          "title": "Time"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "70105596",
+          "reason": "The Time Traveler's Wife: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "The Time Traveler's Wife"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "81198930",
+          "reason": "Tenet: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "Tenet"
+        },
+        {
+          "badge": "★ IMDb 5.1",
+          "id": "81504326",
+          "reason": "Time Cut: IMDb rating via OMDb. 5.1 out of 10. Open details",
+          "title": "Time Cut"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "81591296",
+          "reason": "Nobody Wants This: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Nobody Wants This"
+        },
+        {
+          "badge": "★ IMDb 5.4",
+          "id": "81936019",
+          "reason": "Our Times: IMDb rating via OMDb. 5.4 out of 10. Open details",
+          "title": "Our Times"
+        },
+        {
+          "badge": "★ IMDb 6.7",
+          "id": "81309354",
+          "reason": "The Adam Project: IMDb rating via OMDb. 6.7 out of 10. Open details",
+          "title": "The Adam Project"
+        },
+        {
+          "badge": "★ IMDb 5.5",
+          "id": "81686180",
+          "reason": "Family Pack: IMDb rating via OMDb. 5.5 out of 10. Open details",
+          "title": "Family Pack"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "81970498",
+          "reason": "The One About Matthew Perry: No automatic IMDb match found yet. Open details",
+          "title": "The One About Matthew Perry"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "60026122",
+          "reason": "How to Lose a Guy in 10 Days: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "How to Lose a Guy in 10 Days"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "492899",
+          "reason": "Far and Away: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Far and Away"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "80214497",
+          "reason": "1899: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "1899"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "80183187",
+          "reason": "Klaus: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Klaus"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81612719",
+          "reason": "The Dinosaurs: Rating unavailable from OMDb. Open details",
+          "title": "The Dinosaurs"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=time"
+    },
+    {
+      "keyword": "animation",
+      "cards": [
+        {
+          "badge": "★ IMDb 6.4",
+          "id": "80992853",
+          "reason": "Ingress: The Animation: IMDb rating via OMDb. 6.4 out of 10. Open details",
+          "title": "Ingress: The Animation"
+        },
+        {
+          "badge": "★ IMDb 6.2",
+          "id": "81450005",
+          "reason": "Adam by Eve: A live in Animation: IMDb rating via OMDb. 6.2 out of 10. Open details",
+          "title": "Adam by Eve: A live in Animation"
+        },
+        {
+          "badge": "★ IMDb 5.7",
+          "id": "80175350",
+          "reason": "SWORDGAI The Animation: IMDb rating via OMDb. 5.7 out of 10. Open details",
+          "title": "SWORDGAI The Animation"
+        },
+        {
+          "badge": "★ IMDb 7.2",
+          "id": "81749852",
+          "reason": "Swapped: IMDb rating via OMDb. 7.2 out of 10. Open details",
+          "title": "Swapped"
+        },
+        {
+          "badge": "★ IMDb 7.9",
+          "id": "60020686",
+          "reason": "Shrek: IMDb rating via OMDb. 7.9 out of 10. Open details",
+          "title": "Shrek"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "70220028",
+          "reason": "Hotel Transylvania: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "Hotel Transylvania"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "80183187",
+          "reason": "Klaus: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Klaus"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82836255",
+          "reason": "David: Several IMDb titles match; no rating selected. Open details",
+          "title": "David"
+        },
+        {
+          "badge": "★ IMDb 6.9",
+          "id": "81199142",
+          "reason": "The Croods: A New Age: IMDb rating via OMDb. 6.9 out of 10. Open details",
+          "title": "The Croods: A New Age"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "80048061",
+          "reason": "Hotel Transylvania 2: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Hotel Transylvania 2"
+        },
+        {
+          "badge": "★ IMDb 6.3",
+          "id": "80091938",
+          "reason": "The Angry Birds Movie: IMDb rating via OMDb. 6.3 out of 10. Open details",
+          "title": "The Angry Birds Movie"
+        },
+        {
+          "badge": "★ IMDb 6.8",
+          "id": "80103727",
+          "reason": "Storks: IMDb rating via OMDb. 6.8 out of 10. Open details",
+          "title": "Storks"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "70202053",
+          "reason": "Puss in Boots: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Puss in Boots"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=animation"
+    },
+    {
+      "keyword": "thriller",
+      "cards": [
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "81945969",
+          "reason": "Sing: Thriller: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Sing: Thriller"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81288983",
+          "reason": "The Diplomat: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "The Diplomat"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81772075",
+          "reason": "Akka: Rating unavailable from OMDb. Open details",
+          "title": "Akka"
+        },
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "1181732",
+          "reason": "Devil's Advocate: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Devil's Advocate"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "82137222",
+          "reason": "The Rainmaker: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "The Rainmaker"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "70044686",
+          "reason": "Zodiac: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Zodiac"
+        },
+        {
+          "badge": "★ IMDb 6.2",
+          "id": "82010386",
+          "reason": "UNABOMBER: IMDb rating via OMDb. 6.2 out of 10. Open details",
+          "title": "UNABOMBER"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 7.9",
+          "id": "70281312",
+          "reason": "The Blacklist: IMDb rating via OMDb. 7.9 out of 10. Open details",
+          "title": "The Blacklist"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81278442",
+          "reason": "The Whisper Man: Rating unavailable from OMDb. Open details",
+          "title": "The Whisper Man"
+        },
+        {
+          "badge": "★ IMDb 7.6",
+          "id": "60000861",
+          "reason": "American Psycho: IMDb rating via OMDb. 7.6 out of 10. Open details",
+          "title": "American Psycho"
+        },
+        {
+          "badge": "★ IMDb 5.5",
+          "id": "81914143",
+          "reason": "The Last House: IMDb rating via OMDb. 5.5 out of 10. Open details",
+          "title": "The Last House"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "80223997",
+          "reason": "Fractured: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "Fractured"
+        },
+        {
+          "badge": "★ IMDb 8.5",
+          "id": "70047095",
+          "reason": "The Prestige: IMDb rating via OMDb. 8.5 out of 10. Open details",
+          "title": "The Prestige"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "70262614",
+          "reason": "Talaash: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "Talaash"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=thriller"
+    },
+    {
+      "keyword": "Aamir Khan",
+      "cards": [
+        {
+          "badge": "★ IMDb 8.3",
+          "id": "80166185",
+          "reason": "Dangal: IMDb rating via OMDb. 8.3 out of 10. Open details",
+          "title": "Dangal"
+        },
+        {
+          "badge": "★ IMDb 8.1",
+          "id": "70303496",
+          "reason": "PK: IMDb rating via OMDb. 8.1 out of 10. Open details",
+          "title": "PK"
+        },
+        {
+          "badge": "★ IMDb 4.1",
+          "id": "81587859",
+          "reason": "Thugs of Hindostan: IMDb rating via OMDb. 4.1 out of 10. Open details",
+          "title": "Thugs of Hindostan"
+        },
+        {
+          "badge": "★ IMDb 8.1",
+          "id": "60021525",
+          "reason": "Dil Chahta Hai: IMDb rating via OMDb. 8.1 out of 10. Open details",
+          "title": "Dil Chahta Hai"
+        },
+        {
+          "badge": "★ IMDb 5.6",
+          "id": "81318083",
+          "reason": "Laal Singh Chaddha: IMDb rating via OMDb. 5.6 out of 10. Open details",
+          "title": "Laal Singh Chaddha"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82062373",
+          "reason": "Thugs of Hindostaan (Telugu): No automatic IMDb match found yet. Open details",
+          "title": "Thugs of Hindostaan (Telugu)"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82062358",
+          "reason": "Thugs of Hindostan (Tamil): No automatic IMDb match found yet. Open details",
+          "title": "Thugs of Hindostan (Tamil)"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "70262614",
+          "reason": "Talaash: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "Talaash"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "70287293",
+          "reason": "Dhoom:3: No automatic IMDb match found yet. Open details",
+          "title": "Dhoom:3"
+        },
+        {
+          "badge": "★ IMDb 7.0",
+          "id": "80057585",
+          "reason": "Dil Dhadakne Do: IMDb rating via OMDb. 7.0 out of 10. Open details",
+          "title": "Dil Dhadakne Do"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "70054084",
+          "reason": "Fanaa: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "Fanaa"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "81737430",
+          "reason": "The Great Indian Kapil Show: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Great Indian Kapil Show"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70115621",
+          "reason": "Billu: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "Billu"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "70202336",
+          "reason": "Zindagi Na Milegi Dobara: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Zindagi Na Milegi Dobara"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=Aamir%20Khan"
+    },
+    {
+      "keyword": "Tom Hanks",
+      "cards": [
+        {
+          "badge": "★ IMDb 6.8",
+          "id": "81210670",
+          "reason": "News of the World: IMDb rating via OMDb. 6.8 out of 10. Open details",
+          "title": "News of the World"
+        },
+        {
+          "badge": "★ IMDb 7.2",
+          "id": "81121682",
+          "reason": "A Beautiful Day in the Neighborhood: IMDb rating via OMDb. 7.2 out of 10. Open details",
+          "title": "A Beautiful Day in the Neighborhood"
+        },
+        {
+          "badge": "★ IMDb 7.0",
+          "id": "70060021",
+          "reason": "Charlie Wilson's War: IMDb rating via OMDb. 7.0 out of 10. Open details",
+          "title": "Charlie Wilson's War"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "81948265",
+          "reason": "The Phoenician Scheme: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "The Phoenician Scheme"
+        },
+        {
+          "badge": "★ IMDb 7.4",
+          "id": "80103102",
+          "reason": "Sully: IMDb rating via OMDb. 7.4 out of 10. Open details",
+          "title": "Sully"
+        },
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "1181732",
+          "reason": "Devil's Advocate: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Devil's Advocate"
+        },
+        {
+          "badge": "★ IMDb 7.1",
+          "id": "1179053",
+          "reason": "Seven Years in Tibet: IMDb rating via OMDb. 7.1 out of 10. Open details",
+          "title": "Seven Years in Tibet"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "★ IMDb 8.5",
+          "id": "70047095",
+          "reason": "The Prestige: IMDb rating via OMDb. 8.5 out of 10. Open details",
+          "title": "The Prestige"
+        },
+        {
+          "badge": "★ IMDb 7.3",
+          "id": "70077542",
+          "reason": "The Bucket List: IMDb rating via OMDb. 7.3 out of 10. Open details",
+          "title": "The Bucket List"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "18907685",
+          "reason": "Taxi Driver: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Taxi Driver"
+        },
+        {
+          "badge": "★ IMDb 9.2",
+          "id": "60011152",
+          "reason": "The Godfather: IMDb rating via OMDb. 9.2 out of 10. Open details",
+          "title": "The Godfather"
+        },
+        {
+          "badge": "★ IMDb 8.4",
+          "id": "17405997",
+          "reason": "Good Will Hunting: IMDb rating via OMDb. 8.4 out of 10. Open details",
+          "title": "Good Will Hunting"
+        },
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "5670434",
+          "reason": "Eyes Wide Shut: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Eyes Wide Shut"
+        },
+        {
+          "badge": "★ IMDb 7.0",
+          "id": "70112732",
+          "reason": "Julie & Julia: IMDb rating via OMDb. 7.0 out of 10. Open details",
+          "title": "Julie & Julia"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=Tom%20Hanks"
+    },
+    {
+      "keyword": "Shah Rukh Khan",
+      "cards": [
+        {
+          "badge": "★ IMDb 7.5",
+          "id": "60036752",
+          "reason": "Kuch Kuch Hota Hai: IMDb rating via OMDb. 7.5 out of 10. Open details",
+          "title": "Kuch Kuch Hota Hai"
+        },
+        {
+          "badge": "★ IMDb 6.9",
+          "id": "81493411",
+          "reason": "Jawan: Extended Cut: IMDb rating via OMDb. 6.9 out of 10. Open details",
+          "title": "Jawan: Extended Cut"
+        },
+        {
+          "badge": "★ IMDb 5.1",
+          "id": "80091866",
+          "reason": "Dilwale: IMDb rating via OMDb. 5.1 out of 10. Open details",
+          "title": "Dilwale"
+        },
+        {
+          "badge": "★ IMDb 6.1",
+          "id": "70057651",
+          "reason": "Kabhi Alvida Naa Kehna: IMDb rating via OMDb. 6.1 out of 10. Open details",
+          "title": "Kabhi Alvida Naa Kehna"
+        },
+        {
+          "badge": "★ IMDb 6.7",
+          "id": "70258134",
+          "reason": "Jab Tak Hai Jaan: IMDb rating via OMDb. 6.7 out of 10. Open details",
+          "title": "Jab Tak Hai Jaan"
+        },
+        {
+          "badge": "★ IMDb 5.1",
+          "id": "80206847",
+          "reason": "Jab Harry Met Sejal: IMDb rating via OMDb. 5.1 out of 10. Open details",
+          "title": "Jab Harry Met Sejal"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70024184",
+          "reason": "Veer-Zaara: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "Veer-Zaara"
+        },
+        {
+          "badge": "★ IMDb 5.1",
+          "id": "80017528",
+          "reason": "Happy New Year: IMDb rating via OMDb. 5.1 out of 10. Open details",
+          "title": "Happy New Year"
+        },
+        {
+          "badge": "★ IMDb 5.2",
+          "id": "81005364",
+          "reason": "Zero: IMDb rating via OMDb. 5.2 out of 10. Open details",
+          "title": "Zero"
+        },
+        {
+          "badge": "★ IMDb 8.1",
+          "id": "70077853",
+          "reason": "Chak De! India: IMDb rating via OMDb. 8.1 out of 10. Open details",
+          "title": "Chak De! India"
+        },
+        {
+          "badge": "★ IMDb 6.3",
+          "id": "70254350",
+          "reason": "Chennai Express: IMDb rating via OMDb. 6.3 out of 10. Open details",
+          "title": "Chennai Express"
+        },
+        {
+          "badge": "★ IMDb 7.6",
+          "id": "20704518",
+          "reason": "Darr: IMDb rating via OMDb. 7.6 out of 10. Open details",
+          "title": "Darr"
+        },
+        {
+          "badge": "★ IMDb 5.5",
+          "id": "80156935",
+          "reason": "One 2 Ka 4: IMDb rating via OMDb. 5.5 out of 10. Open details",
+          "title": "One 2 Ka 4"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "70019491",
+          "reason": "Swades: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Swades"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "81488267",
+          "reason": "Anjaam: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "Anjaam"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=Shah%20Rukh%20Khan"
+    },
+    {
+      "keyword": "love",
+      "cards": [
+        {
+          "badge": "★ IMDb 7.6",
+          "id": "80026506",
+          "reason": "Love: IMDb rating via OMDb. 7.6 out of 10. Open details",
+          "title": "Love"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "81365135",
+          "reason": "Love: Several IMDb titles match; no rating selected. Open details",
+          "title": "Love"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "82106490",
+          "reason": "Possible Love: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Possible Love"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "83180956",
+          "reason": "A Lady’s Lady Lover: No automatic IMDb match found yet. Open details",
+          "title": "A Lady’s Lady Lover"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81680908",
+          "reason": "#Love: Rating unavailable from OMDb. Open details",
+          "title": "#Love"
+        },
+        {
+          "badge": "★ IMDb 8.4",
+          "id": "80174608",
+          "reason": "Love, Death & Robots: IMDb rating via OMDb. 8.4 out of 10. Open details",
+          "title": "Love, Death & Robots"
+        },
+        {
+          "badge": "★ IMDb 6.2",
+          "id": "80996601",
+          "reason": "Love Is Blind: IMDb rating via OMDb. 6.2 out of 10. Open details",
+          "title": "Love Is Blind"
+        },
+        {
+          "badge": "★ IMDb 6.8",
+          "id": "81504327",
+          "reason": "Love at First Sight: IMDb rating via OMDb. 6.8 out of 10. Open details",
+          "title": "Love at First Sight"
+        },
+        {
+          "badge": "★ IMDb 7.4",
+          "id": "81453839",
+          "reason": "Love Life: IMDb rating via OMDb. 7.4 out of 10. Open details",
+          "title": "Love Life"
+        },
+        {
+          "badge": "★ IMDb 8.0",
+          "id": "81288983",
+          "reason": "The Diplomat: IMDb rating via OMDb. 8.0 out of 10. Open details",
+          "title": "The Diplomat"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "81591296",
+          "reason": "Nobody Wants This: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Nobody Wants This"
+        },
+        {
+          "badge": "★ IMDb 5.8",
+          "id": "81424906",
+          "reason": "A Tourist's Guide to Love: IMDb rating via OMDb. 5.8 out of 10. Open details",
+          "title": "A Tourist's Guide to Love"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "81262893",
+          "reason": "Lovesick: No automatic IMDb match found yet. Open details",
+          "title": "Lovesick"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        },
+        {
+          "badge": "★ IMDb 6.6",
+          "id": "60026122",
+          "reason": "How to Lose a Guy in 10 Days: IMDb rating via OMDb. 6.6 out of 10. Open details",
+          "title": "How to Lose a Guy in 10 Days"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=love"
+    },
+    {
+      "keyword": "comedy",
+      "cards": [
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "81737430",
+          "reason": "The Great Indian Kapil Show: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Great Indian Kapil Show"
+        },
+        {
+          "badge": "★ IMDb 4.9",
+          "id": "81324386",
+          "reason": "Comedy Premium League: IMDb rating via OMDb. 4.9 out of 10. Open details",
+          "title": "Comedy Premium League"
+        },
+        {
+          "badge": "★ IMDb 7.7",
+          "id": "81591296",
+          "reason": "Nobody Wants This: IMDb rating via OMDb. 7.7 out of 10. Open details",
+          "title": "Nobody Wants This"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "82059219",
+          "reason": "Chumbak: Rating unavailable from OMDb. Open details",
+          "title": "Chumbak"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "83124264",
+          "reason": "Matargashti: No automatic IMDb match found yet. Open details",
+          "title": "Matargashti"
+        },
+        {
+          "badge": "★ IMDb 8.4",
+          "id": "70281562",
+          "reason": "Brooklyn Nine-Nine: IMDb rating via OMDb. 8.4 out of 10. Open details",
+          "title": "Brooklyn Nine-Nine"
+        },
+        {
+          "badge": "★ IMDb 8.2",
+          "id": "81011159",
+          "reason": "Little Things: IMDb rating via OMDb. 8.2 out of 10. Open details",
+          "title": "Little Things"
+        },
+        {
+          "badge": "IMDb NR",
+          "id": "81749470",
+          "reason": "Guarding Stars: Rating unavailable from OMDb. Open details",
+          "title": "Guarding Stars"
+        },
+        {
+          "badge": "★ IMDb 8.8",
+          "id": "70153404",
+          "reason": "Friends: IMDb rating via OMDb. 8.8 out of 10. Open details",
+          "title": "Friends"
+        },
+        {
+          "badge": "★ IMDb 7.8",
+          "id": "70259085",
+          "reason": "English Vinglish: IMDb rating via OMDb. 7.8 out of 10. Open details",
+          "title": "English Vinglish"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "83127937",
+          "reason": "Meethe Mein Kya Hai: No automatic IMDb match found yet. Open details",
+          "title": "Meethe Mein Kya Hai"
+        },
+        {
+          "badge": "★ IMDb 8.8",
+          "id": "82643833",
+          "reason": "Dhindora: IMDb rating via OMDb. 8.8 out of 10. Open details",
+          "title": "Dhindora"
+        },
+        {
+          "badge": "★ IMDb 6.5",
+          "id": "70228042",
+          "reason": "The Dictator: IMDb rating via OMDb. 6.5 out of 10. Open details",
+          "title": "The Dictator"
+        },
+        {
+          "badge": "IMDb —",
+          "id": "82880156",
+          "reason": "Sumukhi Suresh Hoemonal: No automatic IMDb match found yet. Open details",
+          "title": "Sumukhi Suresh Hoemonal"
+        },
+        {
+          "badge": "★ IMDb 5.6",
+          "id": "70158419",
+          "reason": "Golmaal 3: IMDb rating via OMDb. 5.6 out of 10. Open details",
+          "title": "Golmaal 3"
+        }
+      ],
+      "renderer": "native-0.3.0",
+      "url": "https://www.netflix.com/search?q=comedy"
+    }
+  ]
+}

@@ -1,0 +1,564 @@
+{
+  "version": "0.3.0",
+  "generatedAt": "2026-11-05T08:17:03.613Z",
+  "scope": "Derived public Netflix metadata for the 17 unresolved unique IDs in the account-specific baseline sample. No OMDb requests made.",
+  "transport": "Fixed public /in/title route; no authentication or cookies; serial starts at least 500 ms apart; 12 s timeout; 2 MiB response limit.",
+  "limitations": "Group labels describe evidence and baseline extension state, not proof of OMDb absence. TVSeries visible metadata dates are not treated as series start years. Credits are public work credits only.",
+  "groups": {
+    "likely_edition_or_language_alias": 4,
+    "movie_automatic_lookup_unresolved": 4,
+    "series_start_year_unsupported": 7,
+    "ambiguous_baseline": 2
+  },
+  "records": [
+    {
+      "id": "81754782",
+      "title": "Salaar (English)",
+      "baselineReason": "Salaar (English): No automatic IMDb match found yet. Open details",
+      "queries": [
+        "english"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/81754782",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Salaar (English)",
+      "filmSearchAlias": "Salaar",
+      "hasDirectorAndTwoCast": true,
+      "year": 2023,
+      "yearMeaning": "movie_release",
+      "group": "likely_edition_or_language_alias",
+      "directors": [
+        "Prashanth Neel"
+      ],
+      "actors": [
+        "Prabhas",
+        "Prithviraj Sukumaran",
+        "Shruthi Haasan",
+        "Jagapathi Babu"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "83127937",
+      "title": "Meethe Mein Kya Hai",
+      "baselineReason": "Meethe Mein Kya Hai: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "hindi",
+        "comedy"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/83127937",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Meethe Mein Kya Hai",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "year": 2026,
+      "yearMeaning": "movie_release",
+      "group": "movie_automatic_lookup_unresolved",
+      "directors": [
+        "Radhika Bansal"
+      ],
+      "actors": [
+        "Ritwik Bhowmik",
+        "Rohini Hattangadi",
+        "Ayesha Raza",
+        "Gaurav Sharma",
+        "Tarana Raja",
+        "Abhay Kaul",
+        "Dalai",
+        "Vikram Bakshi",
+        "Ayuushman Ghai",
+        "Kiara Chouhan"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "83124264",
+      "title": "Matargashti",
+      "baselineReason": "Matargashti: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "hindi",
+        "comedy"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/83124264",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "Matargashti",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [
+        "Siddhant Chavan"
+      ],
+      "actors": [
+        "Rajesh Kumar",
+        "Adrija Sinha",
+        "Saumya Uniyal",
+        "Shakti Kumar",
+        "Tulika Bannerjee",
+        "Sachin Jeet Singh",
+        "Aarav Mavi",
+        "Avinash Agarwal"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82813021",
+      "title": "Dhurandhar The Revenge (Raw & Undekha)",
+      "baselineReason": "Dhurandhar The Revenge (Raw & Undekha): No automatic IMDb match found yet. Open details",
+      "queries": [
+        "hindi"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82813021",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Dhurandhar The Revenge (Raw & Undekha)",
+      "filmSearchAlias": "Dhurandhar The Revenge",
+      "hasDirectorAndTwoCast": true,
+      "year": 2026,
+      "yearMeaning": "movie_release",
+      "group": "likely_edition_or_language_alias",
+      "directors": [
+        "Aditya Dhar"
+      ],
+      "actors": [
+        "Ranveer Singh",
+        "Arjun Rampal",
+        "Sanjay Dutt",
+        "R. Madhavan"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82051930",
+      "title": "Crime Patrol: 26 Jurm, 26 Cases",
+      "baselineReason": "Crime Patrol: 26 Jurm, 26 Cases: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "crime"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82051930",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "Crime Patrol: 26 Jurm, 26 Cases",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [],
+      "actors": [],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82112156",
+      "title": "Desprotexida: El crimen de Pazos",
+      "baselineReason": "Desprotexida: El crimen de Pazos: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "crime"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82112156",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Unprotected: Murder in Galicia",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "year": 2026,
+      "yearMeaning": "movie_release",
+      "group": "movie_automatic_lookup_unresolved",
+      "directors": [],
+      "actors": [],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "80059015",
+      "title": "Crime Patrol: City Crimes",
+      "baselineReason": "Crime Patrol: City Crimes: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "crime"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/80059015",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "Crime Patrol: City Crimes",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [],
+      "actors": [],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82761735",
+      "title": "Time",
+      "baselineReason": "Time: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "time"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82761735",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "Time",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [],
+      "actors": [
+        "Khemanit Jamikorn",
+        "Pakorn Chatborrirak",
+        "Vasin Asvanarunat",
+        "Jacqueline Muench",
+        "Anuwat Choocherdratana",
+        "Penpak Sirikul",
+        "Bhurith Ploymeeka",
+        "Sirinart Sugandharat",
+        "Athiwat Sanitwong Na Ayutthaya",
+        "Ampha Phoosit"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "81970498",
+      "title": "The One About Matthew Perry",
+      "baselineReason": "The One About Matthew Perry: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "time"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/81970498",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "The One About Matthew Perry",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [],
+      "actors": [
+        "Matthew Perry"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82836255",
+      "title": "David",
+      "baselineReason": "David: Several IMDb titles match; no rating selected. Open details",
+      "queries": [
+        "animation"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82836255",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "David",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "year": 2025,
+      "yearMeaning": "movie_release",
+      "group": "ambiguous_baseline",
+      "directors": [
+        "Brent Dawes",
+        "Phil Cunningham"
+      ],
+      "actors": [
+        "Will de Renzy-Martin",
+        "Miri Mesika",
+        "Lauren Daigle",
+        "Brandon Engman",
+        "Asim Chaudhry",
+        "Mark Jacobson",
+        "Mick Wingert",
+        "Phil Wickham"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82062373",
+      "title": "Thugs of Hindostaan (Telugu)",
+      "baselineReason": "Thugs of Hindostaan (Telugu): No automatic IMDb match found yet. Open details",
+      "queries": [
+        "Aamir Khan"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82062373",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Thugs of Hindostaan (Telugu)",
+      "filmSearchAlias": "Thugs of Hindostaan",
+      "hasDirectorAndTwoCast": true,
+      "year": 2018,
+      "yearMeaning": "movie_release",
+      "group": "likely_edition_or_language_alias",
+      "directors": [
+        "Vijay Krishna Acharya"
+      ],
+      "actors": [
+        "Amitabh Bachchan",
+        "Aamir Khan",
+        "Katrina Kaif",
+        "Fatima Sana Shaikh",
+        "Mohammed Zeeshan Ayyub",
+        "Ronit Roy",
+        "Lloyd Owen",
+        "Sharat Saxena",
+        "Ila Arun",
+        "Gavin Marshall"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82062358",
+      "title": "Thugs of Hindostan (Tamil)",
+      "baselineReason": "Thugs of Hindostan (Tamil): No automatic IMDb match found yet. Open details",
+      "queries": [
+        "Aamir Khan"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82062358",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Thugs of Hindostan (Tamil)",
+      "filmSearchAlias": "Thugs of Hindostan",
+      "hasDirectorAndTwoCast": true,
+      "year": 2018,
+      "yearMeaning": "movie_release",
+      "group": "likely_edition_or_language_alias",
+      "directors": [
+        "Vijay Krishna Acharya"
+      ],
+      "actors": [
+        "Amitabh Bachchan",
+        "Aamir Khan",
+        "Katrina Kaif",
+        "Fatima Sana Shaikh",
+        "Mohammed Zeeshan Ayyub",
+        "Ronit Roy",
+        "Lloyd Owen",
+        "Sharat Saxena",
+        "Ila Arun",
+        "Gavin Marshall"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "70287293",
+      "title": "Dhoom:3",
+      "baselineReason": "Dhoom:3: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "Aamir Khan"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/70287293",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Dhoom:3",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "year": 2013,
+      "yearMeaning": "movie_release",
+      "group": "movie_automatic_lookup_unresolved",
+      "directors": [
+        "Vijay Krishna Acharya"
+      ],
+      "actors": [
+        "Aamir Khan",
+        "Abhishek Bachchan",
+        "Katrina Kaif",
+        "Uday Chopra",
+        "Jackie Shroff",
+        "Tabrett Bethell",
+        "Andrew Bicknell",
+        "Siddharth Nigam"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "81365135",
+      "title": "Love",
+      "baselineReason": "Love: Several IMDb titles match; no rating selected. Open details",
+      "queries": [
+        "love"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/81365135",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Love",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "year": 2020,
+      "yearMeaning": "movie_release",
+      "group": "ambiguous_baseline",
+      "directors": [
+        "Khalid Rahman"
+      ],
+      "actors": [
+        "Shine Tom Chacko",
+        "Rajisha Vijayan",
+        "Gokulan",
+        "Sudhi Koppa",
+        "Veena Nandakumar",
+        "Johny Antony"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "83180956",
+      "title": "A Lady’s Lady Lover",
+      "baselineReason": "A Lady’s Lady Lover: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "love"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/83180956",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "A Lady’s Lady Lover",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": true,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [
+        "Sathaporn Nakwilairoj"
+      ],
+      "actors": [
+        "Anyarin Terathananpat",
+        "Cherlisa Sereewiboonkit"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "81262893",
+      "title": "Lovesick",
+      "baselineReason": "Lovesick: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "love"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/81262893",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "TVSeries",
+      "publicTitle": "Lovesick",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "yearMeaning": "unsupported_series_start",
+      "group": "series_start_year_unsupported",
+      "directors": [],
+      "actors": [
+        "Renata Vaca",
+        "Juan Pablo Fuentes",
+        "Iván Amozurrutia",
+        "Cassandra Ciangherotti",
+        "Diana Bovio",
+        "Miguel Rodarte",
+        "Juan Pablo Medina",
+        "Humberto Zurita",
+        "Sofía Carrera",
+        "Alejandro Puente"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    },
+    {
+      "id": "82880156",
+      "title": "Sumukhi Suresh Hoemonal",
+      "baselineReason": "Sumukhi Suresh Hoemonal: No automatic IMDb match found yet. Open details",
+      "queries": [
+        "comedy"
+      ],
+      "sourceUrl": "https://www.netflix.com/in/title/82880156",
+      "publicResponse": {
+        "status": 200
+      },
+      "publicType": "Movie",
+      "publicTitle": "Sumukhi Suresh Hoemonal",
+      "filmSearchAlias": null,
+      "hasDirectorAndTwoCast": false,
+      "year": 2026,
+      "yearMeaning": "movie_release",
+      "group": "movie_automatic_lookup_unresolved",
+      "directors": [
+        "Nishant Nayak"
+      ],
+      "actors": [
+        "Sumukhi Suresh"
+      ],
+      "publicCreditFields": {
+        "directors": true,
+        "actors": true
+      }
+    }
+  ]
+}

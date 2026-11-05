@@ -59,7 +59,7 @@ export class Overlay {
 
   createBadge(container: HTMLElement, title: string, open: (button: HTMLButtonElement) => void): BadgeMount {
     const host = element('div'); host.dataset.scRoot = 'badge';
-    host.dataset.scRenderer = 'native-0.3.0';
+    host.dataset.scRenderer = 'native-0.3.1';
     const root = host.attachShadow({ mode: 'open' });
     const style = element('style'); style.textContent = badgeStyles; root.append(style);
     const previous = container.style.getPropertyValue('position');
@@ -135,7 +135,9 @@ export class Overlay {
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'wikidata')
         panel.append(element('p', 'Matched automatically by streaming title ID via Wikidata', 'meta'));
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'netflix')
-        panel.append(element('p', 'Matched automatically using Netflix’s public film title, release year and type', 'meta'));
+        panel.append(element('p', state.matchBasis === 'credits'
+          ? 'Netflix uses an alternate edition or language title. Matched to IMDb’s film using release year, director and cast.'
+          : 'Matched automatically using Netflix’s public film title, release year and type', 'meta'));
       panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
     }

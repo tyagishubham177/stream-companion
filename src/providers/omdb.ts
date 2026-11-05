@@ -1,4 +1,5 @@
 import type { Candidate, RatingRecord, SearchResult } from '../shared/contracts';
+import { validateFilmCredits } from '../shared/edition';
 
 export type ProviderErrorKind = 'key' | 'quota' | 'offline' | 'provider' | 'not_found' | 'identity';
 export class ProviderError extends Error {
@@ -22,9 +23,11 @@ export function parseDetail(raw: unknown, expectedId: string, now: number): Rati
   if (typeof raw.imdbVotes === 'string' && /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw.imdbVotes)) {
     const n = Number(raw.imdbVotes.replaceAll(',', '')); if (Number.isSafeInteger(n)) votes = n;
   }
+  const credits = typeof raw.Director === 'string' && raw.Director.length <= 2000 && typeof raw.Actors === 'string' && raw.Actors.length <= 5000
+    ? validateFilmCredits({ directors: raw.Director.split(','), actors: raw.Actors.split(',') }) : undefined;
   return { subject: { namespace: 'imdb', id: raw.imdbID }, source: 'imdb', provider: 'omdb',
     title: raw.Title as string, year: raw.Year as string, mediaType: raw.Type as 'movie' | 'series',
-    score, scale: 10, votes, fetchedAt: now };
+    score, scale: 10, votes, fetchedAt: now, ...(credits ? { credits } : {}) };
 }
 export function parseSearch(raw: unknown, page: number): SearchResult {
   if (!object(raw) || raw.Response !== 'True' || !Array.isArray(raw.Search) || raw.Search.length > 10 ||
