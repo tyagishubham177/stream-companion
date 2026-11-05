@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 1;
-export const RESOLVER_VERSION = 2;
+export const RESOLVER_VERSION = 3;
 export const SCHEMA_VERSION = 1;
 export const PRODUCT_NAME = 'Stream Companion';
 
@@ -27,12 +27,12 @@ export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
   evidence: TitleObservation; resolverVersion: number; rejected: string[];
-  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number };
+  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: 'netflix'; checkedAt: number };
 }
 export type DeferredReason = 'budget' | 'quota' | 'offline' | 'provider' | 'key' | 'storage' | 'busy' | 'clock';
 export type LookupState =
-  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' }
-  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' }
+  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | 'netflix' }
+  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | 'netflix' }
   | { kind: 'needs_match'; reason: 'insufficient_evidence' | 'ambiguous' | 'contradiction' | 'not_found' }
   | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string }
   | { kind: 'setup_required' }

@@ -1,4 +1,4 @@
-import { test, expect, chromium, type BrowserContext, type Page } from '@playwright/test';
+import { test, expect, chromium, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Reply } from '../../src/shared/contracts';
@@ -9,15 +9,24 @@ let options: Page;
 let profile: string;
 let requests: URL[] = [];
 const identityRequests: URL[] = [];
+const publicTitleRequests: Array<{ url: URL; headers: Record<string, string>; worker: boolean }> = [];
 const networkFailures: Array<{ host: string; method: string; error: string | null }> = [];
 let providerMode: 'normal' | 'quota' = 'normal';
-const details = (id: string) => ({ Response: 'True', Title: id === 'tt0133093' ? 'Fixture Reference' : id === 'tt7654321' ? 'Fixture Dunes' : 'Fixture Orbit',
-  Year: id === 'tt0133093' ? '1999' : '2020', Type: 'movie', imdbID: id,
-  imdbRating: id === 'tt7654321' ? 'N/A' : '8.2', imdbVotes: '1,234' });
+const details = (id: string) => ({ Response: 'True', Title: id === 'tt4000004' ? 'Fixture Hindi Film' : id === 'tt0133093' ? 'Fixture Reference' : id === 'tt7654321' ? 'Fixture Dunes' : 'Fixture Orbit',
+  Year: id === 'tt4000004' ? '2012' : id === 'tt0133093' ? '1999' : '2020', Type: 'movie', imdbID: id,
+  imdbRating: id === 'tt4000004' ? '9.1' : id === 'tt7654321' ? 'N/A' : '8.2', imdbVotes: '1,234' });
 
 async function command<T>(page: Page, request: object): Promise<T> {
   const reply = await page.evaluate(async request => await chrome.runtime.sendMessage({ protocol: 1, ...request }), request) as Reply<T>;
   if (!reply.ok) throw new Error(reply.error); return reply.value;
+}
+async function showOptions(worker: Worker): Promise<void> {
+  // Installation may already be opening settings. Use the same public action
+  // instead of racing it with a second navigation to the options page.
+  await worker.evaluate(async () => await chrome.runtime.openOptionsPage());
+  await expect.poll(() => context.pages().some(page => page.url() === `${base}/options.html`)).toBe(true);
+  options = context.pages().find(page => page.url() === `${base}/options.html`)!;
+  await expect(options.locator('#save-key')).toBeEnabled();
 }
 async function launch(): Promise<void> {
   const extensionPath = path.resolve('dist');
@@ -51,20 +60,41 @@ async function launch(): Promise<void> {
       requests.push(url);
       if (providerMode === 'quota') return route.fulfill({ json: { Response: 'False', Error: 'Request limit reached!' } });
       const id = url.searchParams.get('i');
+      const query = url.searchParams.get('s');
+      if (query === 'Fixture Hindi Film' || query === 'Fixture Remake') {
+        expect(url.searchParams.get('y')).toBe('2012'); expect(url.searchParams.get('type')).toBe('movie');
+        return route.fulfill({ json: { Response: 'True', totalResults: '1', Search: [{
+          Title: query, Year: query === 'Fixture Remake' ? '2019' : '2012', Type: 'movie',
+          imdbID: query === 'Fixture Remake' ? 'tt4000005' : 'tt4000004',
+        }] } });
+      }
       return route.fulfill({ json: id ? details(id) : { Response: 'True', totalResults: '2', Search: [
         { Title: 'Fixture Orbit', Year: '2020', Type: 'movie', imdbID: 'tt1234567' },
         { Title: 'Fixture Orbit', Year: '1990', Type: 'movie', imdbID: 'tt9999999' }
       ] } });
     }
-    if (url.hostname === 'www.netflix.com') return route.fulfill({ contentType: 'text/html', body: await readFile('tests/fixtures/browse.html', 'utf8') });
+    if (url.hostname === 'www.netflix.com') {
+      const titleId = url.pathname.match(/^\/(?:in\/)?title\/(\d+)$/)?.[1];
+      if (titleId) {
+        const headers = await route.request().allHeaders();
+        publicTitleRequests.push({ url, headers, worker: !!route.request().serviceWorker() });
+        expect(headers.cookie).toBeUndefined(); expect(headers.authorization).toBeUndefined(); expect(headers.referer).toBeUndefined();
+        expect(url.searchParams.has('apikey')).toBe(false); expect(JSON.stringify(headers)).not.toContain('fixture_only');
+        if (titleId !== '1004' && titleId !== '1005') return route.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Unavailable fixture title</h1>' });
+        const title = titleId === '1004' ? 'Fixture Hindi Film' : 'Fixture Remake';
+        return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org', '@type': 'Movie', url: url.href, name: title,
+        })}</script></head><body><div data-uia="metadata"><h2>${title}</h2><ul><li>2012</li><li>2h</li></ul></div></body></html>` });
+      }
+      return route.fulfill({ contentType: 'text/html', body: await readFile('tests/fixtures/browse.html', 'utf8') });
+    }
     if (url.protocol === 'http:' || url.protocol === 'https:') return route.abort();
     return route.continue();
   });
   let worker = context.serviceWorkers().find(worker => new URL(worker.url()).pathname === '/background.js');
   if (!worker) worker = await context.waitForEvent('serviceworker', worker => new URL(worker.url()).pathname === '/background.js');
   base = `chrome-extension://${new URL(worker.url()).hostname}`;
-  options = await context.newPage(); await options.goto(`${base}/options.html`);
-  await expect(options.locator('#save-key')).toBeEnabled();
+  await showOptions(worker);
 }
 test.beforeAll(async ({}, info) => {
   profile = path.resolve(info.outputPath('profile'));
@@ -282,6 +312,61 @@ test('hover previews rate the title instead of its Play episode and clear confli
   await browse.close();
 });
 
+test('public movie metadata fills missing Wikidata matches automatically and rejects remakes', async () => {
+  const browse = await context.newPage(); await browse.goto('https://www.netflix.com/browse');
+  await expect(browse.locator('[data-sc-root="badge"] .badge').first()).toHaveText('★ IMDb 8.2');
+  await context.addCookies([{ name: 'fixture_netflix_session', value: 'synthetic_session_only', domain: '.netflix.com', path: '/' }]);
+  async function addCard(id: string, title: string, left = 48): Promise<void> {
+    await browse.evaluate(({ id, title, left }) => {
+      const wrapper = document.createElement('div'); wrapper.id = `fallback-${id}`; wrapper.className = 'tile';
+      wrapper.style.cssText = `position:absolute;top:450px;left:${left}px;width:280px;height:165px`;
+      const anchor = document.createElement('a'); anchor.dataset.uia = 'standard-card';
+      anchor.href = `/browse?jbv=${id}`; anchor.setAttribute('aria-label', title); anchor.textContent = title;
+      wrapper.append(anchor); document.querySelector('main')!.append(wrapper);
+    }, { id, title, left });
+  }
+  const providerBefore = requests.length;
+  const publicBefore = publicTitleRequests.length;
+  const pagesBefore = context.pages().length;
+  await addCard('1004', 'Fixture Hindi Film');
+  const badge = browse.locator('#fallback-1004 [data-sc-root="badge"] .badge');
+  await expect(badge).toHaveText('★ IMDb 9.1');
+  const searches = requests.slice(providerBefore).filter(url => url.searchParams.has('s'));
+  expect(searches).toHaveLength(1); expect(searches[0].searchParams.get('s')).toBe('Fixture Hindi Film');
+  expect(searches[0].searchParams.get('y')).toBe('2012'); expect(searches[0].searchParams.get('type')).toBe('movie');
+  expect(requests.slice(providerBefore).filter(url => url.searchParams.get('i') === 'tt4000004')).toHaveLength(1);
+  const fetched = publicTitleRequests.slice(publicBefore);
+  expect(fetched).toHaveLength(1); expect(fetched[0].url.pathname).toBe('/in/title/1004'); expect(fetched[0].worker).toBe(true);
+  expect(fetched[0].headers.cookie).toBeUndefined(); expect(fetched[0].headers.referer).toBeUndefined();
+  expect(browse.url()).toBe('https://www.netflix.com/browse'); expect(context.pages()).toHaveLength(pagesBefore);
+  expect(await browse.evaluate(() => (window as unknown as { playbackCount: number }).playbackCount)).toBe(0);
+
+  const providerCached = requests.length, publicCached = publicTitleRequests.length, identityCached = identityRequests.length;
+  await browse.evaluate(() => {
+    const preview = document.createElement('div'); preview.id = 'fallback-preview';
+    preview.dataset.uia = 'modal-motion-container-MINI_MODAL'; preview.setAttribute('role', 'dialog');
+    preview.style.cssText = 'position:absolute;top:450px;left:480px;width:360px;height:240px';
+    preview.innerHTML = '<a href="/title/1004?dpRightClick=1"><div data-uia="previewModal--player_container"><img alt="Fixture Hindi Film" width="360" height="200"></div></a><a href="/watch/999999">Play</a>';
+    document.body.append(preview);
+  });
+  await expect(browse.locator('#fallback-preview [data-sc-root="badge"] .badge')).toHaveText('★ IMDb 9.1');
+  expect(requests.length).toBe(providerCached); expect(publicTitleRequests.length).toBe(publicCached);
+  expect(identityRequests.length).toBe(identityCached);
+  await browse.reload(); await addCard('1004', 'Fixture Hindi Film');
+  await expect(badge).toHaveText('★ IMDb 9.1');
+  expect(requests.length).toBe(providerCached); expect(publicTitleRequests.length).toBe(publicCached);
+  expect(identityRequests.length).toBe(identityCached);
+
+  await addCard('1005', 'Fixture Remake', 400);
+  const remake = browse.locator('#fallback-1005 [data-sc-root="badge"] .badge');
+  await expect(remake).toHaveText('IMDb —');
+  expect(requests.filter(url => url.searchParams.get('s') === 'Fixture Remake')).toHaveLength(1);
+  expect(requests.filter(url => url.searchParams.get('i') === 'tt4000005')).toHaveLength(0);
+  await expect(remake).not.toHaveText(/9\.1|8\.2/);
+  expect(publicTitleRequests.filter(request => request.url.pathname === '/in/title/1005')).toHaveLength(1);
+  await context.clearCookies(); await browse.close();
+});
+
 test('age-aware caches avoid repeated fetches for a week or month and deduplicate refreshes', async () => {
   async function age(days: number, year: string): Promise<void> {
     await options.evaluate(async ({ days, year }) => await new Promise<void>((resolve, reject) => {
@@ -342,7 +427,7 @@ test('browser and worker restart preserve saved choices, key accounting and prov
   await launch();
   const after = await command<{ requests24h: number; mappings: number; keyConfigured: boolean; provider: { kind: string } }>(options, { type: 'GET_STATUS' });
   expect(after.requests24h).toBe(before.requests24h);
-  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(2);
+  expect(after.mappings).toBe(before.mappings); expect(after.mappings).toBe(3); // Two direct IDs plus the public-metadata fallback.
   expect(after.keyConfigured).toBe(true); expect(after.provider.kind).toBe('paused');
   const requestCount = requests.length;
   await expect(command(options, { type: 'TEST_API_KEY' })).rejects.toThrow('cooldown');
@@ -426,7 +511,9 @@ test('extension reload retires stale content scripts and offers a single working
     return { id: after.id, enabled: after.enabled };
   }, new URL(base).hostname);
   expect(restored).toEqual({ id: new URL(base).hostname, enabled: true });
-  options = await context.newPage(); await options.goto(`${base}/options.html`);
+  let replacement = context.serviceWorkers().find(worker => new URL(worker.url()).pathname === '/background.js');
+  if (!replacement) replacement = await context.waitForEvent('serviceworker', worker => new URL(worker.url()).pathname === '/background.js');
+  await showOptions(replacement);
   expect((await command<typeof before>(options, { type: 'GET_STATUS' })).keyConfigured).toBe(true);
   await browse.bringToFront();
   const navigation = browse.waitForEvent('load');

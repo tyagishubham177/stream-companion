@@ -1,15 +1,15 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.2.2. The installed automatic-ID update has passed both the updated automated suite and the live-profile readback described below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.0. The automated suite and public-page parser checks pass; live installed-rating verification for the new metadata fallback awaits extension reload. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 207 tests passed across eight files |
+| `npm test` | 296 tests passed across ten files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Nine actual MV3 integration tests passed |
+| `npm run test:browser` | Ten actual MV3 integration tests passed |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -28,6 +28,18 @@ Public feasibility queries found one direct IMDb candidate for 55 of 61 sampled 
 Test provider responses use explicitly synthetic titles and a fake key. Network routing plus loopback DNS isolation prevents fixture work from reaching real OMDb/Netflix accounts. Browser test data is not compiled into the production extension. Tests do not establish provider response freshness or real catalogue precision.
 
 ## Live evidence and remaining acceptance
+
+### Film coverage fallback (0.3)
+
+The user reported missing ratings for English Vinglish, Gully Boy and Baar Baar Dekho on Netflix Search for Hindi. The installed 0.2.2 page described all three as no automatic match, rather than an identified work with no score. Before updating, the inspected first 20 visible/partly visible search cards showed 7 numeric ratings, 2 NR states and 11 unresolved states. This is one viewport sample, not a language-wide measurement.
+
+![Hindi search before the fallback](images/hindi-ratings-before.jpg)
+
+Credential-free source checks against the real public [English Vinglish](https://www.netflix.com/title/70259085), [Gully Boy](https://www.netflix.com/title/81060024) and [Baar Baar Dekho](https://www.netflix.com/title/80141883) pages passed the production parser and returned Movie identities and visible release years 2012, 2019 and 2016, respectively. Netflix's JSON-LD dateCreated for these pages was 2026-10-19; the parser deliberately ignores it and reads the visibly displayed release year instead. These public checks do not assert live OMDb scores.
+
+The 54 source-provider cases cover same-ID identity binding, Movie-only release-year extraction, encoded names, malformed/conflicting markup, script/comment decoys, safe/opaque redirects, bounded HTML, credential omission, singleflight, cancellation, queue limits, strict caches, timeout, durable spacing/leases and cooldown/Retry-After. The 35 resolver cases cover the three named films with synthetic IMDb IDs/scores, canonical/localized labels, complete exact title/year/type uniqueness, remakes, detail contradictions, rejected candidates, manual/reset races, old-negative-cache upgrades, cache reuse and source revalidation. The new actual-MV3 case validates the automatic fallback with a synthetic film, ignores an account cookie already present in the fake Netflix profile, verifies no referrer/key reaches Netflix, reuses card/hover/cache results after reload without another fetch, and rejects a wrong-year remake.
+
+Existing scores retain their seven/30-day freshness. Public metadata is cached 30 days, genuine missing/unsupported pages one day; transient failures are not cached as missing. The initial successful fallback may require an OMDb title search plus detail request, both inside the existing request budget. Known ID mappings and manual corrections avoid the new source fetch. Missing direct-ID series remain conservative because public series years may describe a later season.
 
 ### Native scrolling and reload lifecycle
 

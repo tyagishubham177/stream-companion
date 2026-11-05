@@ -6,12 +6,15 @@ import { Repository, txGet, txPut } from './repository';
 import { DAY, DeferredError, Scheduler } from './scheduler';
 import type { Configuration } from './config';
 import type { DirectIdResult } from '../providers/wikidata';
+import type { NetflixMetadataResult } from '../providers/netflix-metadata';
 
 interface Resolution { expiresAt: number; state?: LookupState; attempts: number }
 interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
+interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<NetflixMetadataResult> }
 export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
-  constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration, private readonly directIds?: DirectIds) {}
+  constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
+    private readonly directIds?: DirectIds, private readonly metadata?: Metadata) {}
   async detail(id: string, explicit: boolean, retest = false): Promise<RatingRecord> {
     if (!retest) {
       const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
@@ -51,11 +54,26 @@ export class Resolver {
     if (!settings.enabled) return { kind: 'disabled' };
     let cache: RatingRecord | undefined;
     let directSnapshot: DirectIdResult | undefined;
+    let metadataSnapshot: NetflixMetadataResult | undefined;
     const revalidateSource = mapping?.method === 'automatic' && mapping.provenance?.source === 'wikidata' &&
       Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && !!this.directIds;
     if (revalidateSource) directSnapshot = await this.directIds!.resolve(o.ref, demand);
+    const revalidateMetadata = mapping?.method === 'automatic' && mapping.provenance?.source === 'netflix' &&
+      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && !!this.metadata;
+    if (revalidateMetadata) metadataSnapshot = await this.metadata!.resolve(o.ref, demand);
+    const metadataChanged = metadataSnapshot?.kind === 'matched' && !!mapping && !supportedCandidate(mapping.evidence,
+      { id: mapping.subject?.id ?? '', title: metadataSnapshot.title, year: String(metadataSnapshot.year), mediaType: 'movie' });
+    if (metadataSnapshot?.kind === 'matched' && !metadataChanged) {
+      const checkedAt = metadataSnapshot.checkedAt;
+      await this.repo.transaction(['mappings', 'state'], async tx => {
+        const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
+        if (current?.method === 'automatic' && current.provenance?.source === 'netflix' && current.revision === mapping?.revision &&
+          (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) === resetEpoch)
+          txPut(tx, 'mappings', titleKey(o.ref), { ...current, revision: current.revision + 1, provenance: { source: 'netflix', checkedAt } });
+      });
+    }
     // A temporary source outage does not invalidate a previously supported identity/cache.
-    if (mapping?.subject && !(revalidateSource && directSnapshot?.kind !== 'deferred')) {
+    if (mapping?.subject && !(revalidateSource && directSnapshot?.kind !== 'deferred') && !metadataChanged) {
       // V1 decisions remain compatible; new lookup attempts use the current resolver version.
       if (mapping.method === 'automatic' && (mapping.resolverVersion < 1 || mapping.resolverVersion > RESOLVER_VERSION)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
       if ((o.mediaType !== 'unknown' && mapping.evidence.mediaType !== 'unknown' && o.mediaType !== mapping.evidence.mediaType) ||
@@ -85,6 +103,8 @@ export class Resolver {
     if (refresh) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     if (!(await this.config.credential())) return { kind: 'setup_required' };
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    let evidence = o;
+    let metadataMatch: Extract<NetflixMetadataResult, { kind: 'matched' }> | undefined;
     if (this.directIds) {
       const direct = directSnapshot ?? await this.directIds.resolve(o.ref, demand);
       if (direct.kind === 'matched') {
@@ -120,14 +140,24 @@ export class Resolver {
           return cachedOrDeferred(undefined, 'automatic', error);
         }
       }
-      if (!hasStrongEvidence(o)) {
+      if ((!hasStrongEvidence(o) || metadataChanged) && direct.kind === 'missing' && this.metadata) {
+        const result = metadataSnapshot ?? await this.metadata.resolve(o.ref, demand);
+        if (result.kind === 'deferred') return { ...result };
+        if (result.kind === 'matched') {
+          if (contradicts(o, { year: String(result.year), mediaType: 'movie' })) return { kind: 'needs_match', reason: 'contradiction' };
+          metadataMatch = result;
+          evidence = { ...o, displayTitle: result.title, mediaType: 'movie', year: { value: result.year, meaning: 'movie_release' },
+            aliases: [...new Set([o.displayTitle, ...(o.aliases ?? [])])].filter(title => title !== result.title) };
+        }
+      }
+      if (!hasStrongEvidence(evidence)) {
         if (direct.kind === 'deferred') return { kind: 'deferred', reason: direct.reason, message: direct.message, retryAfter: direct.retryAfter };
         return { kind: 'needs_match', reason: direct.kind === 'ambiguous' ? 'ambiguous' : 'not_found' };
       }
     }
-    if (!hasStrongEvidence(o)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    if (!hasStrongEvidence(evidence)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     const fingerprint = observationFingerprint(o);
-    const resolutionKey = JSON.stringify([fingerprint, mapping?.revision ?? 0, resetEpoch, RESOLVER_VERSION]);
+    const resolutionKey = JSON.stringify([fingerprint, observationFingerprint(evidence), mapping?.revision ?? 0, resetEpoch, RESOLVER_VERSION]);
     const previous = await this.repo.get<Resolution>('resolutions', resolutionKey);
     if (previous?.state?.kind === 'needs_match' && previous.expiresAt > Date.now()) return previous.state;
     const save = async (state: LookupState) => {
@@ -153,25 +183,26 @@ export class Resolver {
       }
     };
     try {
-      const result = await automaticRequest({ s: o.displayTitle, y: String(usableYear(o)), type: o.mediaType, page: '1' }, raw => parseSearch(raw, 1));
+      const result = await automaticRequest({ s: evidence.displayTitle, y: String(usableYear(evidence)), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1));
       // An incomplete candidate set cannot establish a unique identity.
       if (result.total > result.candidates.length) return await save({ kind: 'needs_match', reason: 'ambiguous' });
-      const candidates = result.candidates.filter(c => supportedCandidate(o, c) && !mapping?.rejected.includes(c.id));
+      const candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
       if (candidates.length !== 1) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
       const selectedId = candidates[0].id;
       const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: selectedId }));
       const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
         await automaticRequest({ i: selectedId, plot: 'short' }, raw => parseDetail(raw, selectedId, Date.now()));
       await this.repo.put('ratings', ratingKey(record.subject), record);
-      if (!supportedCandidate(o, { id: record.subject.id, title: record.title, year: record.year, mediaType: record.mediaType })) return await save({ kind: 'needs_match', reason: 'contradiction' });
+      if (!supportedCandidate(evidence, { id: record.subject.id, title: record.title, year: record.year, mediaType: record.mediaType })) return await save({ kind: 'needs_match', reason: 'contradiction' });
       const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
-          evidence: o, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION } satisfies Mapping);
+          evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
+          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt } } : {}) } satisfies Mapping);
         return true;
       });
-      if (accepted) return stateFromRecord(record, 'automatic');
+      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined);
       const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
       return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
         ? stateFromRecord(record, 'automatic', winner.provenance?.source) : { kind: 'needs_match', reason: 'contradiction' };
@@ -181,7 +212,7 @@ export class Resolver {
     }
   }
 }
-export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata'): LookupState {
+export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | 'netflix'): LookupState {
   if (record.score === null) return { kind: 'unrated', record, ...(identitySource ? { identitySource } : {}) };
   return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...(identitySource ? { identitySource } : {}) };
 }

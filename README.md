@@ -2,7 +2,7 @@
 
 A personal Chrome extension with generic streaming branding and a modular platform boundary. **V1 adds IMDb ratings and title matching to Netflix.** The data provider is OMDb; you supply your own key in extension Settings.
 
-**0.2 update:** visible browse and Continue Watching cards now resolve automatically through Netflix-to-IMDb ID mappings from Wikidata. Opening every title is unnecessary. Corrections remain optional, and missing/ambiguous matches show an explained `IMDb —` state.
+**0.3 update:** visible cards and expanded hover previews resolve automatically. Direct Netflix-to-IMDb mappings are checked first; films without those links can now use Netflix’s public title, release year and movie type for a strict OMDb match. Opening each title is unnecessary. Corrections remain optional, and ambiguous matches remain unresolved.
 
 The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This local release candidate has passed an initial live Netflix/OMDb check on Search and My List; broader catalogue acceptance remains open. See `docs/verification.md` for the exact evidence and limits.
 
@@ -41,9 +41,9 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.2.2.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.3.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
-For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, accept the added Wikidata host access if prompted, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
+For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow Netflix public-title-page access if Chrome requests it, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
 
 ## Verify in your account
 
@@ -54,7 +54,7 @@ For the installed unpacked copy, reload Stream Companion at `chrome://extensions
 5. Scroll vertically and move carousels: badges should remain attached to cards, clip with their row, and keep completed ratings. Hover to expand a card and check that its rating remains visible at the upper left. Open a badge then scroll: the panel should close without jumping the page. Disable/re-enable ratings. Try cache-only mode and 200% browser zoom. Verify playback/account pages have no overlays.
 6. Review provider usage and separate cache/match/key actions in Settings. Send only redacted diagnostics if troubleshooting.
 
-Browse cards often lack release year/type. Version 0.2 resolves their public Netflix IDs automatically, rather than guessing from title popularity. If a unique ID mapping is absent, actual movie details can still supply evidence for the strict fallback. Series dates remain conservative. Modern browse and Continue Watching selectors were inspected on 5 November 2026; unrecognized layouts fail closed.
+Browse cards often lack release year/type. Version 0.2 resolves their public Netflix IDs automatically, rather than guessing from title popularity. If the direct ID relationship is missing, a cookie-free public Netflix film page now supplies release-year/type evidence for the strict fallback. This improves coverage for films such as Hindi titles without weakening remake checks. Series dates remain conservative. Modern browse and Continue Watching selectors were inspected on 5 November 2026; unrecognized layouts fail closed.
 
 ## Caching
 
@@ -70,6 +70,7 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 - `src/background`: authorization, resolver, transactional storage and shared request scheduler.
 - `src/providers`: fixed-origin OMDb transport and response normalization.
 - `src/providers/wikidata.ts`: batched public identity lookup, separate cache and cooldown.
+- `src/providers/netflix-metadata.ts`: cookie-free public movie metadata, bounded parsing, separate cache and cooldown.
 - `src/pages`: popup, settings and correction UI.
 - `src/shared`: versioned messages, identities and validation.
 - `docs/Stream_Companion_Design_v1.md`: product/technical design and extension roadmap.
@@ -77,6 +78,6 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 
 Mappings use platform + title identity. Rating caches distinguish external identity, source and provider. New platforms do not inherit another platform's corrections. Add an adapter and exact host permissions when implementing the next supported service; no runtime plugin framework is required.
 
-The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. No production backend, telemetry, login, private Netflix API or remote executable code is included. Ratings are attributed to IMDb via OMDb; automatic source IDs come from Wikidata, which receives public Netflix IDs but never your API key. Public distribution needs provider-rights and product-name checks.
+The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. No production backend, telemetry, login, private Netflix API or remote executable code is included. Ratings are attributed to IMDb via OMDb; automatic source IDs come from Wikidata, which receives public Netflix IDs but never your API key. Public Netflix film metadata is requested without account cookies or the OMDb key, and cached for 30 days. Public distribution needs provider-rights and product-name checks.
 
 After reloading or updating the extension in Chrome, refresh the Netflix tab too. A disconnected script stops and offers **Refresh Netflix**; it does not reload a playing page automatically. Chrome may retain older warning entries under Errors until you clear them.

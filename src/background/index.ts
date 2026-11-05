@@ -7,12 +7,14 @@ import { Repository, idbRequest, txGet, txPut } from './repository';
 import { DeferredError, Scheduler } from './scheduler';
 import { Resolver, stateFromRecord } from './resolver';
 import { WikidataResolver } from '../providers/wikidata';
+import { NetflixMetadataResolver } from '../providers/netflix-metadata';
 
 const repo = new Repository();
 const config = new Configuration();
 const scheduler = new Scheduler(repo, () => config.credential(), fetch, () => config.settings());
 const directIds = new WikidataResolver(repo, () => config.settings());
-const resolver = new Resolver(repo, scheduler, config, directIds);
+const metadata = new NetflixMetadataResolver(repo, () => config.settings());
+const resolver = new Resolver(repo, scheduler, config, directIds, metadata);
 const ready = Promise.all([config.ready(), repo.open()]);
 // Prevent a rejected startup promise becoming an unhandled rejection before the first message.
 void ready.catch(() => undefined);
@@ -207,7 +209,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         return { product: 'Stream Companion', version: chrome.runtime.getManifest().version, protocol: PROTOCOL_VERSION,
           generatedAt: new Date().toISOString(), enabled: app.settings.enabled, cacheOnly: app.settings.cacheOnly,
           keyConfigured: app.keyConfigured, providerState: app.provider.kind, requests24h: app.requests24h,
-          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, platforms: ['netflix'], features: ['ratings'], identityProvider: 'wikidata' };
+          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, platforms: ['netflix'], features: ['ratings'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
       }
     }
   } finally {

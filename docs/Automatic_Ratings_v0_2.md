@@ -1,6 +1,6 @@
 # Automatic visible title ratings
 
-Version 0.2.0, 5 November 2026.
+Version 0.2.0, 5 November 2026. Historical design: version 0.3 now adds cookie-free public Netflix movie metadata when the direct ID link is missing. See README and verification for current behavior.
 
 Stream Companion now attempts to identify every visible supported Netflix card automatically. Users connect their OMDb key once and browse normally. Opening each movie or series is no longer the normal way to obtain identity evidence.
 
