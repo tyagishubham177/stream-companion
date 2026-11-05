@@ -1,0 +1,9 @@
+node_modules/
+dist/
+releases/
+test-results/
+playwright-report/
+.browser-profile/
+*.local
+.env*
+!.env.example
