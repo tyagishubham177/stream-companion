@@ -1,6 +1,6 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.1. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback awaits reload. Earlier installed 0.2/0.2.2 evidence remains labelled below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.3.1. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
@@ -103,3 +103,7 @@ The following captures are from the actual built extension in isolated browser f
 Product name: Stream Companion. Ratings is the first feature, Netflix the first adapter, IMDb the rating source, OMDb the data provider. Keep platform title mappings separate and preserve source/provider namespaces when adding capabilities. Prefer additional verified adapters and ordinary bundled modules over a runtime plugin system.
 
 Development branch: `feat/streaming-ratings-v1`. This is a new local repository in its own folder; the parent workspace and existing extensions were not modified. No remote is configured, so there is no push destination. Final source and documentation are committed locally.
+
+### Installed 0.3.1 live repeat
+
+Repeated all 12 baseline keywords on the same profile: 180 observations and exactly the same 135 unique IDs. Numeric ratings improved 112→115, NR stayed 6, unresolved 17→14. Dhurandhar The Revenge (Raw & Undekha), Salaar (English), and Thugs of Hindostan (Tamil) now show 8.2, 6.7 and 4.1 respectively. Dhurandhar details match IMDb tt39139925 / Movie 2026, disclose independent year/director/cast corroboration, and retain the 14:04:11 fetched snapshot on later navigation with a seven-day cache policy. Remaining gaps and per-query outcomes are in the [audit report](Catalogue_Coverage_Audit.md). This is verified sample coverage, not a claim that all IMDb-backed titles resolve.
