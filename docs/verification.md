@@ -1,6 +1,6 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.2.0. Initial live-profile checks below were performed on 0.1.0; the automatic-ID update has passed the updated automated suite and awaits the installed extension reload/live readback.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current extension version: 0.2.0. The installed automatic-ID update has passed both the updated automated suite and the live-profile readback described below.
 
 ## Results
 
@@ -27,6 +27,18 @@ Test provider responses use explicitly synthetic titles and a fake key. Network 
 
 ## Live evidence and remaining acceptance
 
+### Automatic ratings update
+
+The user reloaded the installed unpacked extension, preserving the configured OMDb key. On Home, the first five standard browse cards and all five Continue Watching cards populated numeric ratings without opening a Netflix title detail panel. The observed titles included The Tudors (8.1), House (8.7), The Mentalist (8.2), Friends (8.8) and Everwood (7.6). The duplicate Tudors cards agreed.
+
+On Netflix Search for `House`, 12 of 15 visible cards showed numeric ratings automatically, with no pending state in the inspected snapshot. The remaining cards did not receive fabricated scores. Source gaps and genuinely unavailable OMDb scores remain distinguishable unavailable/NR states rather than requiring a matching dialog.
+
+Opening the extension's optional House badge details showed its correct canonical title, 2004–2012 series years, IMDb 8.7, Wikidata ID-match provenance and a 30-day refresh interval. After a full page reload, its fetched timestamp remained `05/11/2026, 12:19:40`, demonstrating reuse of the stored snapshot. No Netflix title pages or playback were opened to obtain these automatic ratings. The Netflix test tab was left open on the verified Search results.
+
+![Automatically populated real ratings on Netflix Search](images/netflix-automatic-ratings.jpg)
+
+### Initial personal profile smoke test
+
 The extension was installed in the user's normal Chrome profile on 5 November 2026. A personal free OMDb key was generated and activated; the user saved it in Settings and reported a successful connection test. Browser automation could operate Netflix but explicitly could not access the `chrome-extension://` settings/correction pages. No account/session export was made, and no API key is stored in this repository or its screenshots.
 
 | Live check | Observed result |
@@ -42,7 +54,7 @@ The extension was installed in the user's normal Chrome profile on 5 November 20
 | My List | 44 recognized cards, 44 badge elements and one overlay host; 10 badges visible in the inspected viewport |
 | Scrolling | At scroll position 600 CSS px, all 10 visible badges stayed inside the viewport and aligned with the matching underlying title; one overlay host remained |
 
-The live sample validates one numeric title and selected browse mechanics. It does not establish catalogue-wide automatic coverage or precision. Many cards intentionally show `IMDb ?` when Netflix exposes insufficient identity evidence. Manual correction/confirmation, settings toggles/cache clearing, browser restart and quota handling were verified in isolated MV3 fixtures; their equivalent live-profile actions were not all repeated because extension pages are blocked to browser control. Browser-native zoom, full playback-state teardown and the labelled 100-title catalogue gate remain open. No test deliberately started title playback.
+That initial v0.1 sample validated one numeric title and selected browse mechanics. Version 0.2's automatic results are recorded above, but neither sample establishes catalogue-wide coverage or precision. Manual correction/confirmation, settings toggles/cache clearing, browser restart and quota handling were verified in isolated MV3 fixtures; their equivalent live-profile actions were not all repeated because extension pages are blocked to browser control. Browser-native zoom, full playback-state teardown and the labelled 100-title catalogue gate remain open. No test deliberately started title playback.
 
 The unchanged fetched timestamp supports cache reuse; production provider request logs were not captured because request URLs contain credentials. Performance targets such as p95 cached latency, DOM long tasks, memory stability and catalogue-wide automatic coverage have not been measured. The package remains a local v1 candidate rather than a public-store release. The original input design remains untouched.
 

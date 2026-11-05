@@ -56,6 +56,10 @@ The six IDs absent from that source snapshot were `83127937`, `81970498`, `81956
 
 ## Updating the installed copy
 
+The installed 0.2 update was live-tested after reload: all five first-row browse cards and all five Continue Watching cards loaded numeric ratings without opening title details. Search for House showed 12 numeric ratings among 15 visible cards. House's fetched timestamp remained unchanged after a full reload, with a 30-day refresh policy. These samples demonstrate the usability improvement; they are not a catalogue-wide guarantee.
+
+![Real automatic ratings on Netflix](images/netflix-automatic-ratings.jpg)
+
 The updated unpacked files are in the same `dist` directory. Reload Stream Companion once at `chrome://extensions`, allow the newly declared Wikidata host access if Chrome requests it, then reload Netflix. The browser-control tool explicitly blocks Chrome extension management pages, so that reload is the one manual step. The existing saved key and cache remain in the same extension profile.
 
 The ZIP is `releases/stream-companion-0.2.0.zip`. Tests use the actual MV3 extension with isolated synthetic Netflix, OMDb and Wikidata responses; provider hosts also resolve to loopback in the fixture context to prevent external test traffic.
