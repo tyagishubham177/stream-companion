@@ -120,3 +120,64 @@ test('a change broadcast invalidates an older in-flight snapshot before it can h
   await expect(page.locator('[data-sc-root="mark-effect"][data-effect="watched"]')).toHaveCount(2);
   await page.close();
 });
+
+for (const surface of [
+  { kind: 'MINI_MODAL', ratings: false, scale: .85, height: 290, viewport: 1280, left: 500 },
+  { kind: 'MINI_MODAL', ratings: true, scale: 1.1, height: 360, viewport: 1280, left: 500 },
+  { kind: 'DETAIL_MODAL', ratings: false, scale: .95, height: 420, viewport: 1280, left: 500 },
+  { kind: 'MINI_MODAL', ratings: false, scale: .9, height: 250, viewport: 400, left: 20 },
+]) test(`${surface.kind} keeps Mark visible under a stationary pointer and its menu inside native hover/focus ownership (ratings ${surface.ratings}, width ${surface.viewport})`, async () => {
+  const page = await fixture();
+  await page.setViewportSize({ width: surface.viewport, height: 720 });
+  await page.evaluate(ratingsEnabled => (window as unknown as { fixture: { settings(patch: object): void } }).fixture.settings({ ratingsEnabled }), surface.ratings);
+  // The pointer is already over the future preview before Netflix inserts it.
+  await page.mouse.move(surface.left + 100, 190);
+  await page.evaluate(({ kind, scale, height, left }) => {
+    const preview = document.createElement('div'); preview.id = 'expanded';
+    preview.dataset.uia = `modal-motion-container-${kind}`; preview.setAttribute('role', 'dialog'); preview.setAttribute('aria-modal', 'true');
+    preview.style.cssText = `position:absolute;left:${left}px;top:150px;width:420px;height:${height}px;transform:translate(11px,7px) scale(${scale});transform-origin:0 0;background:#202020;border-radius:8px;overflow:hidden;`;
+    preview.innerHTML = `<div data-uia="previewModal--player_container" style="height:150px"><img alt="Preview Film" style="display:block;width:100%;height:150px" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='150'%3E%3Crect width='420' height='150' fill='orange'/%3E%3C/svg%3E"></div><div style="padding:14px"><button id="native-play">Play</button><a href="/title/2001">Preview Film details</a><a href="/watch/999999">Play episode</a></div>`;
+    let leave: ReturnType<typeof setTimeout> | undefined;
+    preview.addEventListener('mouseout', event => {
+      // React-style native hover ownership: leaving for an unrelated portal
+      // dismisses the preview after its usual short delay.
+      if (!(event.relatedTarget instanceof Node) || !preview.contains(event.relatedTarget)) leave = setTimeout(() => preview.remove(), 80);
+    });
+    preview.addEventListener('mouseover', () => clearTimeout(leave));
+    const state = { focusEscapes: 0 };
+    Object.assign(window, { expandedFixture: state });
+    document.addEventListener('focusin', event => {
+      if (preview.isConnected && event.target instanceof Element && event.target.matches('[data-sc-root="mark-panel"],[data-sc-root="mark-menu"]') && !preview.contains(event.target)) {
+        state.focusEscapes++; preview.querySelector<HTMLButtonElement>('#native-play')!.focus();
+      }
+    });
+    document.body.append(preview);
+  }, surface);
+  const preview = page.locator('#expanded'), mark = preview.locator('[data-sc-root="marks"] button');
+  await expect(mark).toBeEnabled();
+  // No hover, focus or synthetic mouseenter is used to reveal this control.
+  expect(await mark.evaluate(button => getComputedStyle(button).opacity)).toBe('1');
+  await mark.click();
+  const menu = preview.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Watched', exact: true })).toBeFocused();
+  const boxes = await preview.evaluate(owner => {
+    const host = owner.querySelector<HTMLElement>('[data-sc-root="mark-menu"]')!;
+    const menu = host.shadowRoot!.querySelector<HTMLElement>('[role="menu"]')!;
+    const a = owner.getBoundingClientRect(), b = menu.getBoundingClientRect();
+    return { within: b.left >= a.left - 1 && b.top >= a.top - 1 && b.right <= a.right + 1 && b.bottom <= a.bottom + 1,
+      hostPointer: getComputedStyle(host).pointerEvents, scrollable: menu.scrollHeight > menu.clientHeight };
+  });
+  expect(boxes.within).toBe(true); expect(boxes.hostPointer).toBe('none');
+  await menu.hover();
+  if (boxes.scrollable) await menu.evaluate(node => { node.scrollTop = 30; node.dispatchEvent(new Event('scroll', { bubbles: true })); });
+  // Outlast the simulated native dismissal delay while the pointer is in the menu.
+  await page.waitForTimeout(120);
+  await expect(preview).toBeVisible(); await expect(menu).toBeVisible();
+  await menu.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
+  await expect(preview.locator('[data-sc-root="marks"] button')).toHaveAttribute('aria-label', /Want to watch/);
+  await expect(page.locator('[data-sc-root="mark-menu"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { expandedFixture: { focusEscapes: number } }).expandedFixture.focusEscapes)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { playbackCount: number }).playbackCount)).toBe(0);
+  await page.close();
+});

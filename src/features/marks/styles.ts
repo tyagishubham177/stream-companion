@@ -1,7 +1,8 @@
 export const buttonStyles = `
 :host{all:initial;position:absolute;inset:0;display:block;pointer-events:none;z-index:2;font-family:Arial,sans-serif;color-scheme:dark}
 button{position:absolute;top:8px;right:8px;box-sizing:border-box;min-width:32px;height:30px;padding:4px 7px;display:flex;align-items:center;justify-content:center;gap:4px;pointer-events:auto;border:1px solid #62645e;border-radius:6px;background:#151718f2;color:#fff;font:600 12px/18px Arial,sans-serif;cursor:pointer;white-space:nowrap;opacity:0;transition:opacity .1s,background .1s}
-:host([data-active=true]) button,:host([data-reveal=true]) button,button:focus{opacity:1}
+:host([data-active=true]) button,:host([data-reveal=true]) button,:host([data-expanded=true]) button,button:focus{opacity:1}
+:host([data-expanded=true]) button{transition:none}
 :host([data-corner=top-left]) button{right:auto;left:8px}
 button:hover{background:#30332d}button:focus-visible{outline:2px solid #ffe0a1;outline-offset:3px}button[hidden]{display:none}svg{width:18px;height:18px;flex:none}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
@@ -9,6 +10,8 @@ button:hover{background:#30332d}button:focus-visible{outline:2px solid #ffe0a1;o
 `;
 export const panelStyles = `
 :host{all:initial;position:fixed;inset:0;display:block;z-index:2147483100;pointer-events:none;font-family:Arial,sans-serif;color-scheme:dark;color:#f3f2ed}
+:host([data-local=true]){position:absolute;inset:0}
+:host([data-local=true]) .menu{position:absolute}
 *{box-sizing:border-box}button{font:inherit;cursor:pointer}button:focus-visible,a:focus-visible{outline:2px solid #ffe0a1;outline-offset:2px}
 .menu{position:fixed;pointer-events:auto;width:260px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;background:#191b19;border:1px solid #62645e;border-radius:9px;padding:14px;box-shadow:0 12px 36px #0008;font-size:14px;line-height:1.4}
 h2{margin:0 25px 12px 0;font-size:17px;line-height:1.3;overflow-wrap:anywhere}.label{font-size:11px;color:#b4b8ae;margin:10px 0 5px;letter-spacing:.03em}

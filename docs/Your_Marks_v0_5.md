@@ -24,6 +24,8 @@ The rating scheduler checks eligibility again before dispatch. A known-rating co
 
 Modern standard/progress cards and classic title cards use one platform adapter. Search, New & Popular, My List, named language/genre/person browse routes, expanded previews and full title details are supported where a whole-title identity is available. Classic `/watch` links never establish identity alone: the scoped title card must also provide agreeing public video/entity identifiers. Episode links, contradictory identifiers, account/profile pages and playback fail closed. New Netflix DOM variants still require validation; this is not a claim that every future page layout is supported.
 
+In expanded previews, Mark is always visible even when the preview appears beneath a stationary pointer. Its menu stays within the native preview's hover/focus owner, fits the visible card and scrolls when needed. Moving into that menu does not leave the preview's hover area. Normal grid cards retain their quieter reveal-on-hover behaviour.
+
 ## Correction-informed matching
 
 An actual exported matching log was inspected locally to identify failure categories. The raw export and title-choice history are not part of this repository. Regression fixtures model the following cases with synthetic names:

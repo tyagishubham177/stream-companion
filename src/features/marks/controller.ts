@@ -28,8 +28,8 @@ export class MarksController {
   private retries = 0;
   private statusRequest = 0;
   private stopped = false;
-  private readonly scroll = (event: Event) => { if (!event.composedPath().includes(this.view?.host as EventTarget)) this.view?.close(false); };
-  private readonly resize = () => { for (const entry of this.tiles.values()) entry.mount.invalidateLayout(); this.schedule(); };
+  private readonly scroll = (event: Event) => { if (!this.view?.ownsEvent(event)) this.view?.close(false); };
+  private readonly resize = () => { this.view?.close(false); for (const entry of this.tiles.values()) entry.mount.invalidateLayout(); this.schedule(); };
   private readonly visibility = () => { if (document.hidden) this.detach(); else void this.loadStatus(); };
   private readonly messages = (message: unknown): boolean => {
     if (!message || typeof message !== 'object' || !('type' in message)) return false;
@@ -162,7 +162,7 @@ export class MarksController {
   }
   private open(entry: Tile): void {
     if (!this.current(entry) || !this.view || !this.known.has(titleKey(entry.observation.ref))) return;
-    this.view.open({ observation: entry.observation, mark: this.records.get(titleKey(entry.observation.ref)), anchor: entry.mount.button,
+    this.view.open({ observation: entry.observation, mark: this.records.get(titleKey(entry.observation.ref)), anchor: entry.mount.button, container: entry.mount.container,
       current: () => this.current(entry), save: patch => this.save(entry, patch) });
   }
   private apply(result: MarkMutation): void {

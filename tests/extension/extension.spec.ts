@@ -486,6 +486,18 @@ test('hover previews rate the title instead of its Play episode and clear confli
     return { x: rect.left - anchor.left, y: rect.top - anchor.top };
   })).toEqual({ x: 8, y: 8 });
   expect(requests.length).toBe(providerCount); expect(identityRequests.length).toBe(identityCount);
+  // The preview is already present before the new control mounts. It must not
+  // depend on receiving a later mouseenter, and its menu must share Netflix's
+  // modal/hover owner rather than falling outside the focus boundary.
+  const mark = preview.locator('[data-sc-root="marks"] button');
+  await expect(mark).toHaveCSS('opacity', '1');
+  await mark.click();
+  const marksMenu = preview.getByRole('menu', { name: 'Fixture Orbit', exact: true });
+  await expect(marksMenu).toBeVisible();
+  await marksMenu.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
+  await expect(mark).toHaveAttribute('aria-label', /Want to watch/);
+  await browse.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(mark).toHaveAttribute('aria-label', /No marks/);
   await badge.click(); await expect(browse.getByRole('dialog').filter({ hasText: 'IMDb rating' })).toBeVisible();
   await browse.keyboard.press('Escape');
   await badge.press('Space'); await browse.keyboard.press('Escape');

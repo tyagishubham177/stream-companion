@@ -9,7 +9,7 @@ Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript
 | `npm run typecheck` | Passed |
 | `npm test` | 509 tests passed across nineteen files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | 23 browser tests passed: 13 actual MV3 integration, six adapter DOM and four renderer tests |
+| `npm run test:browser` | 27 browser tests passed: 13 actual MV3 integration, six adapter DOM and eight renderer tests |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -37,7 +37,9 @@ Build/typecheck/diff checks passed, and ZIP readback confirmed 14 entries, versi
 
 ## Your marks and coverage verification (0.5.0)
 
-The integrated suite passes typecheck/build, 509 unit tests across nineteen files, and 23 browser tests: 13 actual MV3 integration cases, six independently bundled DOM adapter cases and four marks renderer cases. The new real-MV3 test proves marks work without an OMDb key with ratings disabled, persist across browser/worker restart, update duplicate cards and a live Your titles page, support search/latest navigation and survive independent module toggles. Renderer cases cover full-colour watched artwork under a 14% shade, rewatch intent, grayscale passed artwork, native filter/progress preservation, module cleanup, recycled identity, stale Undo and stale in-flight snapshots. Existing rating, scroll, hover, cache and runtime-reload regressions still pass.
+The integrated suite passes typecheck/build, 509 unit tests across nineteen files, and 27 browser tests: 13 actual MV3 integration cases, six independently bundled DOM adapter cases and eight marks renderer cases. The new real-MV3 test proves marks work without an OMDb key with ratings disabled, persist across browser/worker restart, update duplicate cards and a live Your titles page, support search/latest navigation and survive independent module toggles. Renderer cases cover full-colour watched artwork under a 14% shade, rewatch intent, grayscale passed artwork, native filter/progress preservation, module cleanup, recycled identity, stale Undo and stale in-flight snapshots. Existing rating, scroll, hover, cache and runtime-reload regressions still pass.
+
+Installed 0.5.0 exposed a hover usability regression: an unmarked control could remain hidden when Netflix mounted a preview under a stationary pointer, and a menu outside the native preview could dismiss it or lose focus. Expanded controls now appear immediately, and their menus are descendants of the native mini/detail owner. Four renderer regressions cover ratings on/off, scaled previews, a narrow viewport, simulated native hover dismissal and focus trapping. The real-MV3 preview case also verifies an owner-contained menu, Want to watch and Undo. A normal Netflix refresh retained Chrome's old content bundle; installed verification of this follow-up awaits an extension reload.
 
 Before implementation, installed native-0.4.0 was observed on authenticated Netflix. Search rendered ratings after settling; New & Popular used classic .title-card markup, /latest was unsupported, and its playback links needed corroborating public entity identifiers. Only scoped public identifier fields were retained for the adapter; no raw tracking context, profile IDs, cookies or account state are in repository evidence. The actual user-exported matching log was inspected locally, and regression improvements target its failure categories. It remains outside Git. Public Netflix cast/type evidence was reachable; real OMDb outcomes for new fallback paths require installed verification.
 

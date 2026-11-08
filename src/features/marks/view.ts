@@ -11,6 +11,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, c
   if (className) node.className = className;
   return node;
 }
+const EXPANDED = '[data-uia="modal-motion-container-MINI_MODAL"],[data-uia="modal-motion-container-DETAIL_MODAL"]';
 export interface MarkMount {
   host: HTMLDivElement; button: HTMLButtonElement; container: HTMLElement;
   update(mark: TitleMark | undefined, observation: TitleObservation, ratings: boolean, corner: 'top-left' | 'top-right'): void;
@@ -52,10 +53,14 @@ export function mountMark(container: HTMLElement, open: (button: HTMLButtonEleme
   return {
     host, button, container,
     update(mark, observation, ratings, corner) {
-      const nextKey = JSON.stringify([mark?.revision, mark?.watched, mark?.plan, observation.displayTitle, ratings, corner]);
+      const expanded = !!container.closest(EXPANDED);
+      const nextKey = JSON.stringify([mark?.revision, mark?.watched, mark?.plan, observation.displayTitle, ratings, corner, expanded]);
       if (nextKey === renderKey) return;
       renderKey = nextKey;
       host.dataset.active = String(!!mark && hasMarks(mark)); host.dataset.corner = corner;
+      // Netflix can mount a preview beneath a stationary pointer. There may be
+      // no subsequent mouseenter, so expanded controls are explicitly visible.
+      host.dataset.expanded = String(expanded);
       button.replaceChildren();
       if (mark?.plan === 'pass') button.append(markIcon('pass'));
       else if (mark?.plan === 'want') button.append(markIcon('want'));
@@ -108,12 +113,14 @@ export function mountMark(container: HTMLElement, open: (button: HTMLButtonEleme
 
 interface MenuModel {
   observation: TitleObservation; mark?: TitleMark; anchor: HTMLButtonElement;
+  container: HTMLElement;
   current(): boolean; save(patch: MarkPatch): Promise<void>;
 }
 export class MarksView {
   readonly host = element('div');
   readonly root: ShadowRoot;
   private menu?: HTMLDivElement;
+  private menuHost?: HTMLDivElement;
   private model?: MenuModel;
   private toast?: HTMLDivElement;
   private timer?: ReturnType<typeof setTimeout>;
@@ -128,11 +135,21 @@ export class MarksView {
     for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup']) this.root.addEventListener(type, event => event.stopPropagation());
     document.addEventListener('pointerdown', this.outside, true); document.addEventListener('keydown', this.key, true);
   }
+  ownsEvent(event: Event): boolean { const path = event.composedPath(); return path.includes(this.host) || !!this.menuHost && path.includes(this.menuHost); }
   owns(button: HTMLButtonElement): boolean { return this.model?.anchor === button; }
   changed(ref?: PlatformTitleRef): void { if (!ref || this.model && titleKey(this.model.observation.ref) === titleKey(ref)) this.close(false); }
   validate(): void { if (this.model && !this.model.current()) this.close(false); }
   open(model: MenuModel): void {
     this.close(false); claimPanel(this, () => this.close(false)); this.model = model;
+    const owner = model.container.closest<HTMLElement>(EXPANDED);
+    const menuHost = element('div'); this.menuHost = menuHost; menuHost.dataset.scRoot = 'mark-menu';
+    menuHost.dataset.local = String(!!owner);
+    const menuRoot = menuHost.attachShadow({ mode: 'open' });
+    const menuStyle = element('style'); menuStyle.textContent = panelStyles; menuRoot.append(menuStyle);
+    for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup']) menuRoot.addEventListener(type, event => event.stopPropagation());
+    // A native hover preview owns mouseleave. Keep our menu in that owner's
+    // DOM ancestry so moving into its shadow content does not dismiss Netflix.
+    (owner ?? document.documentElement).append(menuHost);
     const menu = element('div', undefined, 'menu'); this.menu = menu;
     const heading = element('h2', model.observation.displayTitle); heading.id = 'marks-title';
     menu.setAttribute('role', 'menu'); menu.setAttribute('aria-labelledby', heading.id);
@@ -174,23 +191,47 @@ export class MarksView {
     menu.addEventListener('keydown', event => {
       if (event.key === 'Tab') { this.close(false); return; }
       const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('.choice:not(:disabled)'));
-      const current = buttons.indexOf(this.root.activeElement as HTMLButtonElement);
+      const current = buttons.indexOf(menuRoot.activeElement as HTMLButtonElement);
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault(); event.stopPropagation();
         const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
         buttons[index]?.focus();
       }
     });
-    model.anchor.setAttribute('aria-expanded', 'true'); this.root.append(menu);
-    const anchor = model.anchor.getBoundingClientRect(), box = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(12, Math.min(anchor.right - box.width, innerWidth - box.width - 12))}px`;
-    menu.style.top = `${anchor.bottom + 6 + box.height <= innerHeight - 12 ? anchor.bottom + 6 : Math.max(12, anchor.top - box.height - 6)}px`;
+    model.anchor.setAttribute('aria-expanded', 'true'); menuRoot.append(menu);
+    this.positionMenu(menu, menuHost, model.anchor, !!owner);
     menu.querySelector<HTMLButtonElement>('.choice')?.focus({ preventScroll: true });
+  }
+  private positionMenu(menu: HTMLElement, host: HTMLElement, button: HTMLElement, local: boolean): void {
+    const anchor = button.getBoundingClientRect();
+    if (!local) {
+      const box = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(12, Math.min(anchor.right - box.width, innerWidth - box.width - 12))}px`;
+      menu.style.top = `${anchor.bottom + 6 + box.height <= innerHeight - 12 ? anchor.bottom + 6 : Math.max(12, anchor.top - box.height - 6)}px`;
+      return;
+    }
+    // A transformed Netflix preview establishes a containing block. Map viewport
+    // measurements into its local CSS coordinates rather than treating them as
+    // fixed screen coordinates. This covers native translate/scale and CSS zoom.
+    const box = host.getBoundingClientRect();
+    const scaleX = box.width / Math.max(1, host.clientWidth), scaleY = box.height / Math.max(1, host.clientHeight);
+    const left = Math.max(8, (12 - box.left) / scaleX), right = Math.min(host.clientWidth - 8, (innerWidth - 12 - box.left) / scaleX);
+    const top = Math.max(8, (12 - box.top) / scaleY), bottom = Math.min(host.clientHeight - 8, (innerHeight - 12 - box.top) / scaleY);
+    const width = Math.max(1, Math.min(260, right - left)); menu.style.width = `${width}px`; menu.style.maxWidth = `${width}px`;
+    const anchorTop = (anchor.top - box.top) / scaleY, anchorBottom = (anchor.bottom - box.top) / scaleY;
+    const below = Math.max(0, bottom - Math.max(top, anchorBottom + 6)), above = Math.max(0, Math.min(bottom, anchorTop - 6) - top);
+    const naturalHeight = menu.getBoundingClientRect().height / scaleY;
+    const placeBelow = below >= Math.min(160, naturalHeight) || below >= above;
+    const available = Math.max(1, placeBelow ? below : above);
+    menu.style.maxHeight = `${available}px`;
+    const height = Math.min(naturalHeight, available);
+    menu.style.left = `${Math.max(left, Math.min((anchor.right - box.left) / scaleX - width, right - width))}px`;
+    menu.style.top = `${placeBelow ? Math.max(top, anchorBottom + 6) : Math.max(top, Math.min(bottom, anchorTop - 6) - height)}px`;
   }
   close(returnFocus = false): void {
     releasePanel(this);
     const anchor = this.model?.anchor;
-    anchor?.setAttribute('aria-expanded', 'false'); this.menu?.remove(); this.menu = undefined; this.model = undefined;
+    anchor?.setAttribute('aria-expanded', 'false'); this.menuHost?.remove(); this.menuHost = undefined; this.menu = undefined; this.model = undefined;
     if (returnFocus && anchor?.isConnected && !anchor.hidden) anchor.focus({ preventScroll: true });
   }
   notify(message: string, undo?: () => Promise<void>): void {
