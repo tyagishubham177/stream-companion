@@ -11,6 +11,24 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, c
   if (className) node.className = className;
   return node;
 }
+/** Keep a pressed control targeted through layout movement, preserving drag cancellation. */
+function preservePointerClick(button: HTMLButtonElement): void {
+  let press: { pointerId: number; x: number; y: number; cancelled: boolean } | undefined;
+  button.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0) return;
+    press = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, cancelled: false };
+    button.setPointerCapture(event.pointerId);
+  });
+  button.addEventListener('pointermove', event => {
+    if (press?.pointerId === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) press.cancelled = true;
+  });
+  button.addEventListener('pointercancel', event => { if (press?.pointerId === event.pointerId) press.cancelled = true; });
+  button.addEventListener('click', event => {
+    const cancelled = event.detail > 0 && press?.cancelled;
+    press = undefined;
+    if (cancelled) { event.preventDefault(); event.stopImmediatePropagation(); event.stopPropagation(); }
+  }, true);
+}
 const EXPANDED = '[data-uia="modal-motion-container-MINI_MODAL"],[data-uia="modal-motion-container-DETAIL_MODAL"]';
 export interface MarkMount {
   host: HTMLDivElement; button: HTMLButtonElement; container: HTMLElement;
@@ -27,6 +45,7 @@ export function mountMark(container: HTMLElement, open: (button: HTMLButtonEleme
   const root = host.attachShadow({ mode: 'open' });
   const style = element('style'); style.textContent = buttonStyles;
   const button = element('button', 'Mark'); button.type = 'button';
+  preservePointerClick(button);
   button.setAttribute('aria-haspopup', 'menu'); button.setAttribute('aria-expanded', 'false');
   root.append(style, button); container.append(host);
   const reveal = () => { host.dataset.reveal = 'true'; };
@@ -136,6 +155,12 @@ export class MarksView {
     document.addEventListener('pointerdown', this.outside, true); document.addEventListener('keydown', this.key, true);
   }
   ownsEvent(event: Event): boolean { const path = event.composedPath(); return path.includes(this.host) || !!this.menuHost && path.includes(this.menuHost); }
+  handleScroll(event: Event): void {
+    // Local menus already travel with Netflix's preview. Native focus or
+    // scrollIntoView can scroll an ancestor between pointerdown and pointerup;
+    // removing the menu then exposes the streaming controls under that click.
+    if (!this.ownsEvent(event) && this.menuHost?.dataset.local !== 'true') this.close(false);
+  }
   owns(button: HTMLButtonElement): boolean { return this.model?.anchor === button; }
   changed(ref?: PlatformTitleRef): void { if (!ref || this.model && titleKey(this.model.observation.ref) === titleKey(ref)) this.close(false); }
   validate(): void { if (this.model && !this.model.current()) this.close(false); }
@@ -153,7 +178,7 @@ export class MarksView {
     const menu = element('div', undefined, 'menu'); this.menu = menu;
     const heading = element('h2', model.observation.displayTitle); heading.id = 'marks-title';
     menu.setAttribute('role', 'menu'); menu.setAttribute('aria-labelledby', heading.id);
-    const close = element('button', '×', 'close'); close.type = 'button'; close.setAttribute('aria-label', 'Close your marks'); close.addEventListener('click', () => this.close(true));
+    const close = element('button', '×', 'close'); close.type = 'button'; close.setAttribute('aria-label', 'Close your marks'); preservePointerClick(close); close.addEventListener('click', () => this.close(true));
     const mark = model.mark;
     const option = (text: string, icon: 'watched' | 'want' | 'pass' | undefined, checked: boolean, patch: MarkPatch, minor = false) => {
       const button = element('button', undefined, `choice${minor ? ' minor' : ''}`); button.type = 'button';
@@ -161,6 +186,7 @@ export class MarksView {
       if (icon) button.setAttribute('aria-checked', String(checked));
       if (icon) button.append(markIcon(icon)); button.append(element('span', text));
       if (checked) button.append(element('span', '✓', 'selected'));
+      preservePointerClick(button);
       button.addEventListener('click', async () => {
         if (!model.current()) { this.close(false); return; }
         for (const control of menu.querySelectorAll<HTMLButtonElement>('button')) control.disabled = true;
@@ -199,12 +225,12 @@ export class MarksView {
       }
     });
     model.anchor.setAttribute('aria-expanded', 'true'); menuRoot.append(menu);
-    this.positionMenu(menu, menuHost, model.anchor, !!owner);
+    this.positionMenu(menu, menuHost, model.anchor, owner ?? undefined);
     menu.querySelector<HTMLButtonElement>('.choice')?.focus({ preventScroll: true });
   }
-  private positionMenu(menu: HTMLElement, host: HTMLElement, button: HTMLElement, local: boolean): void {
+  private positionMenu(menu: HTMLElement, host: HTMLElement, button: HTMLElement, owner?: HTMLElement): void {
     const anchor = button.getBoundingClientRect();
-    if (!local) {
+    if (!owner) {
       const box = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(12, Math.min(anchor.right - box.width, innerWidth - box.width - 12))}px`;
       menu.style.top = `${anchor.bottom + 6 + box.height <= innerHeight - 12 ? anchor.bottom + 6 : Math.max(12, anchor.top - box.height - 6)}px`;
@@ -215,8 +241,14 @@ export class MarksView {
     // fixed screen coordinates. This covers native translate/scale and CSS zoom.
     const box = host.getBoundingClientRect();
     const scaleX = box.width / Math.max(1, host.clientWidth), scaleY = box.height / Math.max(1, host.clientHeight);
-    const left = Math.max(8, (12 - box.left) / scaleX), right = Math.min(host.clientWidth - 8, (innerWidth - 12 - box.left) / scaleX);
-    const top = Math.max(8, (12 - box.top) / scaleY), bottom = Math.min(host.clientHeight - 8, (innerHeight - 12 - box.top) / scaleY);
+    // The owner's content may already be scrolled before the menu mounts.
+    // Its host then moves with that content, while the owner's clipping box
+    // stays put. Project the visible owner/viewport intersection into the host.
+    const clip = owner.getBoundingClientRect();
+    const left = Math.max((clip.left - box.left) / scaleX + 8, (12 - box.left) / scaleX);
+    const right = Math.min((clip.right - box.left) / scaleX - 8, (innerWidth - 12 - box.left) / scaleX);
+    const top = Math.max((clip.top - box.top) / scaleY + 8, (12 - box.top) / scaleY);
+    const bottom = Math.min((clip.bottom - box.top) / scaleY - 8, (innerHeight - 12 - box.top) / scaleY);
     const width = Math.max(1, Math.min(260, right - left)); menu.style.width = `${width}px`; menu.style.maxWidth = `${width}px`;
     const anchorTop = (anchor.top - box.top) / scaleY, anchorBottom = (anchor.bottom - box.top) / scaleY;
     const below = Math.max(0, bottom - Math.max(top, anchorBottom + 6)), above = Math.max(0, Math.min(bottom, anchorTop - 6) - top);

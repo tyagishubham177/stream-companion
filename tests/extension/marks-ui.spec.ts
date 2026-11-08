@@ -93,6 +93,10 @@ test('visual and module toggles clean up owned layers while preserving site styl
   await page.evaluate(() => (window as unknown as { fixture: { settings(patch: object): void } }).fixture.settings({ shadeWatched: false }));
   await expect(page.locator('[data-sc-root="mark-effect"]')).toHaveCount(0);
   await expect(page.locator('[data-sc-root="marks"]')).toHaveCount(2);
+  const mark = page.locator('[data-sc-root="marks"] button').first(); await mark.focus(); await mark.press('Enter');
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.evaluate(() => { document.body.style.minHeight = '2000px'; window.scrollBy(0, 20); });
+  await expect(page.getByRole('menu')).toHaveCount(0); // A global grid menu still dismisses on page scroll.
   await page.locator('#tile-0').evaluate(node => (node as HTMLElement).style.position = 'absolute');
   await page.evaluate(() => (window as unknown as { fixture: { settings(patch: object): void } }).fixture.settings({ marksEnabled: false }));
   await expect(page.locator('[data-sc-root="marks"]')).toHaveCount(0);
@@ -122,21 +126,38 @@ test('a change broadcast invalidates an older in-flight snapshot before it can h
 });
 
 for (const surface of [
-  { kind: 'MINI_MODAL', ratings: false, scale: .85, height: 290, viewport: 1280, left: 500 },
-  { kind: 'MINI_MODAL', ratings: true, scale: 1.1, height: 360, viewport: 1280, left: 500 },
-  { kind: 'DETAIL_MODAL', ratings: false, scale: .95, height: 420, viewport: 1280, left: 500 },
-  { kind: 'MINI_MODAL', ratings: false, scale: .9, height: 250, viewport: 400, left: 20 },
-]) test(`${surface.kind} keeps Mark visible under a stationary pointer and its menu inside native hover/focus ownership (ratings ${surface.ratings}, width ${surface.viewport})`, async () => {
+  { kind: 'MINI_MODAL', ratings: false, scale: .85, height: 290, viewport: 1280, left: 500, nativeScroll: false },
+  { kind: 'MINI_MODAL', ratings: true, scale: 1.1, height: 360, viewport: 1280, left: 500, nativeScroll: false },
+  { kind: 'DETAIL_MODAL', ratings: false, scale: .95, height: 420, viewport: 1280, left: 500, nativeScroll: false },
+  { kind: 'MINI_MODAL', ratings: false, scale: .9, height: 250, viewport: 400, left: 20, nativeScroll: false },
+  { kind: 'MINI_MODAL', ratings: true, scale: 1, height: 360, viewport: 1280, left: 500, nativeScroll: true },
+]) test(`${surface.kind} keeps Mark visible under a stationary pointer and its menu inside native hover/focus ownership (ratings ${surface.ratings}, width ${surface.viewport}, native scroll ${surface.nativeScroll})`, async () => {
   const page = await fixture();
   await page.setViewportSize({ width: surface.viewport, height: 720 });
   await page.evaluate(ratingsEnabled => (window as unknown as { fixture: { settings(patch: object): void } }).fixture.settings({ ratingsEnabled }), surface.ratings);
   // The pointer is already over the future preview before Netflix inserts it.
   await page.mouse.move(surface.left + 100, 190);
-  await page.evaluate(({ kind, scale, height, left }) => {
+  await page.evaluate(({ kind, scale, height, left, nativeScroll }) => {
     const preview = document.createElement('div'); preview.id = 'expanded';
     preview.dataset.uia = `modal-motion-container-${kind}`; preview.setAttribute('role', 'dialog'); preview.setAttribute('aria-modal', 'true');
     preview.style.cssText = `position:absolute;left:${left}px;top:150px;width:420px;height:${height}px;transform:translate(11px,7px) scale(${scale});transform-origin:0 0;background:#202020;border-radius:8px;overflow:hidden;`;
     preview.innerHTML = `<div data-uia="previewModal--player_container" style="height:150px"><img alt="Preview Film" style="display:block;width:100%;height:150px" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='150'%3E%3Crect width='420' height='150' fill='orange'/%3E%3C/svg%3E"></div><div style="padding:14px"><button id="native-play">Play</button><a href="/title/2001">Preview Film details</a><a href="/watch/999999">Play episode</a></div>`;
+    const state = { focusEscapes: 0, scrollPhase: 'mark', scrolls: [] as string[] };
+    if (nativeScroll) {
+      document.body.style.minHeight = '1800px';
+      const overflow = document.createElement('div'); overflow.style.cssText = 'position:absolute;top:700px;height:1px;width:1px;pointer-events:none'; preview.append(overflow);
+      preview.addEventListener('pointerdown', event => {
+        const button = event.composedPath().find(node => node instanceof HTMLButtonElement) as HTMLButtonElement | undefined;
+        const phase = button?.getAttribute('aria-haspopup') === 'menu' ? 'mark' : button?.getAttribute('aria-label') === 'Close your marks' ? 'close' :
+          button?.getAttribute('role') === 'menuitemradio' && button.textContent?.includes('Want to watch') ? 'want' : '';
+        if (!phase || phase !== state.scrollPhase) return;
+        state.scrolls.push(phase); state.scrollPhase = 'idle';
+        // Native focus/scrollIntoView can scroll overflow:hidden ancestors
+        // between pointerdown and pointerup. The choice must remain a target.
+        preview.scrollTop += 80; window.scrollBy(0, 80);
+      }, true);
+      preview.addEventListener('click', () => { (window as unknown as { playbackCount: number }).playbackCount++; });
+    }
     let leave: ReturnType<typeof setTimeout> | undefined;
     preview.addEventListener('mouseout', event => {
       // React-style native hover ownership: leaving for an unrelated portal
@@ -144,7 +165,6 @@ for (const surface of [
       if (!(event.relatedTarget instanceof Node) || !preview.contains(event.relatedTarget)) leave = setTimeout(() => preview.remove(), 80);
     });
     preview.addEventListener('mouseover', () => clearTimeout(leave));
-    const state = { focusEscapes: 0 };
     Object.assign(window, { expandedFixture: state });
     document.addEventListener('focusin', event => {
       if (preview.isConnected && event.target instanceof Element && event.target.matches('[data-sc-root="mark-panel"],[data-sc-root="mark-menu"]') && !preview.contains(event.target)) {
@@ -157,7 +177,12 @@ for (const surface of [
   await expect(mark).toBeEnabled();
   // No hover, focus or synthetic mouseenter is used to reveal this control.
   expect(await mark.evaluate(button => getComputedStyle(button).opacity)).toBe('1');
-  await mark.click();
+  if (surface.nativeScroll) {
+    await mark.hover(); await page.mouse.down();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.mouse.up();
+    expect(await page.evaluate(() => (window as unknown as { expandedFixture: { scrolls: string[] } }).expandedFixture.scrolls)).toEqual(['mark']);
+  } else await mark.click();
   const menu = preview.getByRole('menu');
   await expect(menu).toBeVisible();
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Watched', exact: true })).toBeFocused();
@@ -174,9 +199,35 @@ for (const surface of [
   // Outlast the simulated native dismissal delay while the pointer is in the menu.
   await page.waitForTimeout(120);
   await expect(preview).toBeVisible(); await expect(menu).toBeVisible();
-  await menu.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
+  const want = menu.getByRole('menuitemradio', { name: 'Want to watch', exact: true });
+  if (surface.nativeScroll) {
+    const before = await preview.evaluate(owner => owner.scrollTop);
+    await page.evaluate(() => { (window as unknown as { expandedFixture: { scrollPhase: string } }).expandedFixture.scrollPhase = 'want'; });
+    await want.hover(); await page.mouse.down();
+    await expect.poll(() => preview.evaluate(owner => owner.scrollTop)).toBe(before + 80);
+    // Flush the real ancestor/page scroll events before completing the click.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(menu).toBeVisible(); await page.mouse.up();
+  } else await want.click();
   await expect(preview.locator('[data-sc-root="marks"] button')).toHaveAttribute('aria-label', /Want to watch/);
   await expect(page.locator('[data-sc-root="mark-menu"]')).toHaveCount(0);
+  if (surface.nativeScroll) {
+    // A deliberate pointer drag must still cancel; capture must not convert
+    // moving out of a pressed choice into an unintended mark.
+    const mark = preview.locator('[data-sc-root="marks"] button'); await mark.focus(); await mark.press('Enter');
+    const watched = preview.getByRole('menuitemcheckbox', { name: 'Watched', exact: true }); await watched.hover();
+    const box = await watched.boundingBox(); if (!box) throw new Error('Missing watched choice');
+    await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2); await page.mouse.up();
+    await expect(watched).toHaveAttribute('aria-checked', 'false');
+    await expect(mark).toHaveAttribute('aria-label', 'Preview Film: Want to watch. Edit your marks');
+    await watched.press('Escape'); await expect(page.locator('[data-sc-root="mark-menu"]')).toHaveCount(0);
+    await mark.focus(); await mark.press('Enter');
+    await page.evaluate(() => { (window as unknown as { expandedFixture: { scrollPhase: string } }).expandedFixture.scrollPhase = 'close'; });
+    const close = preview.getByRole('button', { name: 'Close your marks', exact: true }); await close.hover(); await page.mouse.down();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.mouse.up(); await expect(page.locator('[data-sc-root="mark-menu"]')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { expandedFixture: { scrolls: string[] } }).expandedFixture.scrolls)).toEqual(['mark', 'want', 'close']);
+  }
   expect(await page.evaluate(() => (window as unknown as { expandedFixture: { focusEscapes: number } }).expandedFixture.focusEscapes)).toBe(0);
   expect(await page.evaluate(() => (window as unknown as { playbackCount: number }).playbackCount)).toBe(0);
   await page.close();

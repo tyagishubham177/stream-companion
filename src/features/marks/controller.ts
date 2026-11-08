@@ -28,7 +28,7 @@ export class MarksController {
   private retries = 0;
   private statusRequest = 0;
   private stopped = false;
-  private readonly scroll = (event: Event) => { if (!this.view?.ownsEvent(event)) this.view?.close(false); };
+  private readonly scroll = (event: Event) => { this.view?.handleScroll(event); };
   private readonly resize = () => { this.view?.close(false); for (const entry of this.tiles.values()) entry.mount.invalidateLayout(); this.schedule(); };
   private readonly visibility = () => { if (document.hidden) this.detach(); else void this.loadStatus(); };
   private readonly messages = (message: unknown): boolean => {

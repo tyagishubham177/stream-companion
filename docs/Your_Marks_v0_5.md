@@ -26,6 +26,8 @@ Modern standard/progress cards and classic title cards use one platform adapter.
 
 In expanded previews, Mark is always visible even when the preview appears beneath a stationary pointer. Its menu stays within the native preview's hover/focus owner, fits the visible card and scrolls when needed. Moving into that menu does not leave the preview's hover area. Normal grid cards retain their quieter reveal-on-hover behaviour.
 
+Local menus move with their preview through native focus scrolling. A pressed Mark, Close or choice button retains its click target during that movement; deliberately dragging the pointer cancels the action. Grid menus still dismiss on page scrolling.
+
 ## Correction-informed matching
 
 An actual exported matching log was inspected locally to identify failure categories. The raw export and title-choice history are not part of this repository. Regression fixtures model the following cases with synthetic names:
