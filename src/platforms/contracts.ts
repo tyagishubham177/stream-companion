@@ -8,7 +8,8 @@ export interface StreamingPlatformAdapter {
   findTiles(root: ParentNode): Iterable<HTMLElement>;
   badgeContainer(tile: HTMLElement): HTMLElement | null;
   badgeCorner?(tile: HTMLElement): 'top-left' | 'top-right' | undefined;
+  artworkElement?(tile: HTMLElement): HTMLElement | null;
   observeTitle(tile: HTMLElement): TitleObservation | null;
   visibleDetails(observations: readonly TitleObservation[]): TitleObservation | null;
-  isObscured(): boolean;
+  isObscured(tile?: HTMLElement): boolean;
 }

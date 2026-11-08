@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { netflixAdapter, netflixPreviewTitleId, netflixTitleId } from '../../src/platforms/netflix';
+import { netflixAdapter, netflixBrowseSurface, netflixPreviewTitleId, netflixTitleId } from '../../src/platforms/netflix';
 import { badgeText } from '../../src/features/ratings/presentation';
 import { automaticRetryDelay, canResumeOnDemand } from '../../src/features/ratings/recovery';
 
@@ -17,9 +17,13 @@ describe('Netflix page identity boundary', () => {
     expect(netflixTitleId('/browse?jbv=70136129')).toBe('70136129');
     expect(netflixTitleId('/browse/my-list?jbv=492899')).toBe('492899');
     expect(netflixTitleId('/search?q=Far&jbv=492899')).toBe('492899');
+    expect(netflixTitleId('/latest?jbv=492899')).toBe('492899');
+    expect(netflixTitleId('/title/492899?trackId=123')).toBe('492899');
+    expect(netflixTitleId('/browse/person/123?jbv=492899')).toBe('492899');
   });
   it.each([
-    '/watch/70119610', '/account?jbv=70136129', '/browse?jbv=1&jbv=2',
+    '/watch/70119610', '/account?jbv=70136129', '/browse?jbv=1&jbv=2', '/title/12?jbv=13',
+    '/title/12?jbv=12&jbv=12', '/browse/unknown?jbv=12', '/latest?jbv=12&jbv=13',
     '/browse?jbv=not-an-id', '/browse?jbv=1234567890123',
     'https://www.netflix.com.evil.test/browse?jbv=70136129',
     'http://www.netflix.com/browse?jbv=70136129',
@@ -27,11 +31,16 @@ describe('Netflix page identity boundary', () => {
   ])('rejects unsupported or ambiguous identity %s', href => {
     expect(netflixTitleId(href)).toBeNull();
   });
-  it.each(['/watch/123', '/login', '/account', '/YourAccount', '/profiles/manage', '/games', '/latest', '/browse/person/123'])('fails closed on %s', path => {
+  it.each(['/watch/123', '/login', '/account', '/YourAccount', '/profiles/manage', '/games', '/browse/unknown', '/title/not-an-id', '/title/12/episodes'])('fails closed on %s', path => {
     expect(netflixAdapter.supports(new URL(`https://www.netflix.com${path}`))).toBe(false);
   });
-  it.each(['/browse', '/browse/my-list', '/browse/genre/83', '/search?q=movie'])('supports the declared browse surface %s', path => {
+  it.each(['/browse', '/browse/my-list', '/browse/genre/83', '/search?q=movie', '/latest', '/latest/', '/new-and-popular',
+    '/browse/originals', '/browse/original-audio', '/browse/audio-description', '/browse/person/123', '/browse/audio', '/browse/subtitles', '/browse/m/genre/83', '/title/123'])('supports the declared browse surface %s', path => {
     expect(netflixAdapter.supports(new URL(`https://www.netflix.com${path}`))).toBe(true);
+  });
+  it.each(['http://www.netflix.com/latest', 'https://netflix.com/latest', 'https://www.netflix.com.evil.test/search',
+    'https://credential@www.netflix.com/latest'])('keeps catalogue permissions scoped to the exact safe origin: %s', href => {
+    expect(netflixBrowseSurface(new URL(href))).toBe(false);
   });
 });
 

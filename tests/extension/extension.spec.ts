@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Reply, SearchResult, TitleObservation } from '../../src/shared/contracts';
 import type { MatchEvent } from '../../src/background/matching-log';
+import type { MarksSnapshot, MarkMutation } from '../../src/shared/marks';
 
 interface MatchingExport { events: MatchEvent[]; summary: { confirmed: number; confirmedFirstResults: number } }
 
@@ -789,4 +790,54 @@ test('extension reload retires stale content scripts and offers a single working
   expect(after.keyConfigured).toBe(true); expect(after.ratings).toBe(before.ratings);
   expect(after.mappings).toBe(before.mappings); expect(after.requests24h).toBe(before.requests24h);
   await browse.close();
+});
+
+test('actual MV3 marks work without a key across search and discovery, survive restart and toggle independently', async () => {
+  await options.emulateMedia({ forcedColors: 'none', reducedMotion: 'reduce' });
+  await options.evaluate(() => { document.documentElement.style.zoom = ''; });
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { enabled: true, ratingsEnabled: false, marksEnabled: true, shadeWatched: true, fadePassed: true } });
+  await command(options, { type: 'REMOVE_API_KEY' });
+  const calls = requests.length;
+  const browse = await context.newPage();
+  await browse.goto('https://www.netflix.com/search?q=fixture');
+  const marks = browse.locator('[data-sc-root="marks"] button');
+  await expect(marks).toHaveCount(3);
+  await expect(browse.locator('[data-sc-root="badge"]')).toHaveCount(0);
+  await marks.first().focus(); await marks.first().press('Enter');
+  await browse.getByRole('menuitemcheckbox', { name: 'Watched', exact: true }).click();
+  await expect(marks.first()).toHaveAttribute('aria-label', /Watched/);
+  await marks.first().click();
+  await browse.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
+  await expect(marks.first()).toHaveAttribute('aria-label', /Watched.*Want to watch/);
+  const snapshot = await command<MarksSnapshot>(options, { type: 'LIST_MARKS' });
+  const record = snapshot.marks.find(mark => mark.observation.ref.titleId === '1001')!;
+  expect(record).toMatchObject({ watched: true, plan: 'want' });
+  // Duplicate cards and cross-tab changes use the same durable title key.
+  await expect(marks.nth(2)).toHaveAttribute('aria-label', /Watched.*Want to watch/);
+  const titles = await context.newPage(); await titles.goto(`${base}/titles.html`);
+  await expect(titles.getByText('Fixture Orbit', { exact: true })).toBeVisible();
+  for (const path of ['/latest', '/browse/original-audio', '/browse/audio-description']) {
+    await browse.goto('https://www.netflix.com' + path);
+    await expect(browse.locator('[data-sc-root="marks"] button').first()).toHaveAttribute('aria-label', /Watched.*Want to watch/);
+  }
+  const changed = await command<MarkMutation>(titles, { type: 'SET_MARK', observation: record.observation, plan: 'pass', revision: record.revision, epoch: snapshot.epoch });
+  await expect(browse.locator('[data-sc-root="marks"] button').first()).toHaveAttribute('aria-label', /Won’t watch/);
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { marksEnabled: false } });
+  await expect(browse.locator('[data-sc-root="marks"]')).toHaveCount(0);
+  expect((await command<MarksSnapshot>(options, { type: 'LIST_MARKS' })).marks).toContainEqual(changed.mark);
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { marksEnabled: true } });
+  await expect(browse.locator('[data-sc-root="marks"] button').first()).toHaveAttribute('aria-label', /Won’t watch/);
+  expect(requests.length).toBe(calls);
+  // Diagnostics toggling is independent of stored decisions and normal provider state.
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { matchingLogEnabled: false, automaticMatching: false } });
+  const settings = await command<{ settings: { matchingLogEnabled: boolean; automaticMatching: boolean } }>(options, { type: 'GET_STATUS' });
+  expect(settings.settings).toMatchObject({ matchingLogEnabled: false, automaticMatching: false });
+  await titles.screenshot({ path: 'test-results/your-titles.png', fullPage: true });
+  await browse.close(); await titles.close();
+  await context.close(); await launch();
+  const persisted = await command<MarksSnapshot>(options, { type: 'LIST_MARKS' });
+  expect(persisted.marks.find(mark => mark.observation.ref.titleId === '1001')).toEqual(changed.mark);
+  const restarted = await command<{ keyConfigured: boolean; settings: { ratingsEnabled: boolean; marksEnabled: boolean } }>(options, { type: 'GET_STATUS' });
+  expect(restarted.keyConfigured).toBe(false);
+  expect(restarted.settings).toMatchObject({ ratingsEnabled: false, marksEnabled: true });
 });

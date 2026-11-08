@@ -43,7 +43,7 @@ enabled.addEventListener('change', () => {
   void rpc<unknown>({ type: 'UPDATE_SETTINGS', settings: { enabled: next } })
     .then(async () => {
       renderStatus(await rpc<AppStatus>({ type: 'GET_STATUS' }));
-      notice(next ? 'Ratings enabled.' : 'Ratings disabled.');
+      notice(next ? 'Stream Companion enabled.' : 'Stream Companion disabled.');
       await readPage();
     })
     .catch(error => { enabled.checked = !next; notice(message(error), true); })

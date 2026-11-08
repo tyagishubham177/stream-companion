@@ -23,11 +23,18 @@ export function parseDetail(raw: unknown, expectedId: string, now: number): Rati
   if (typeof raw.imdbVotes === 'string' && /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw.imdbVotes)) {
     const n = Number(raw.imdbVotes.replaceAll(',', '')); if (Number.isSafeInteger(n)) votes = n;
   }
-  const credits = typeof raw.Director === 'string' && raw.Director.length <= 2000 && typeof raw.Actors === 'string' && raw.Actors.length <= 5000
-    ? validateFilmCredits({ directors: raw.Director.split(','), actors: raw.Actors.split(',') }) : undefined;
+  const directors = raw.Type === 'series' && (raw.Director === undefined || raw.Director === 'N/A' || raw.Director === '') ? [] :
+    typeof raw.Director === 'string' && raw.Director.length <= 2000 ? raw.Director.split(',') : undefined;
+  const credits = directors && typeof raw.Actors === 'string' && raw.Actors.length <= 5000
+    ? validateFilmCredits({ directors, actors: raw.Actors.split(',') }) : undefined;
   return { subject: { namespace: 'imdb', id: raw.imdbID }, source: 'imdb', provider: 'omdb',
     title: raw.Title as string, year: raw.Year as string, mediaType: raw.Type as 'movie' | 'series',
     score, scale: 10, votes, fetchedAt: now, ...(credits ? { credits } : {}) };
+}
+/** A title-query response still passes the same complete ID/type/detail validation. */
+export function parseTitleDetail(raw: unknown, now: number): RatingRecord {
+  if (!object(raw) || !imdbId(raw.imdbID)) throw new ProviderError('provider', 'The rating service returned an unsupported title response.');
+  return parseDetail(raw, raw.imdbID, now);
 }
 export function parseSearch(raw: unknown, page: number): SearchResult {
   if (!object(raw) || raw.Response !== 'True' || !Array.isArray(raw.Search) || raw.Search.length > 10 ||

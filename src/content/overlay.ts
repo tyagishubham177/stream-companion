@@ -1,3 +1,6 @@
+import { acquirePositioning } from './positioning';
+import { claimPanel, releasePanel } from './panel-coordinator';
+import { normaliseTitle } from '../shared/identity';
 import type { LookupState, TitleObservation } from '../shared/contracts';
 import { badgeText, stateDescription } from '../features/ratings/presentation';
 import { DAY_MS, ratingFreshFor } from '../shared/freshness';
@@ -59,13 +62,10 @@ export class Overlay {
 
   createBadge(container: HTMLElement, title: string, open: (button: HTMLButtonElement) => void): BadgeMount {
     const host = element('div'); host.dataset.scRoot = 'badge';
-    host.dataset.scRenderer = 'native-0.4.0';
+    host.dataset.scRenderer = 'native-0.5.0';
     const root = host.attachShadow({ mode: 'open' });
     const style = element('style'); style.textContent = badgeStyles; root.append(style);
-    const previous = container.style.getPropertyValue('position');
-    const priority = container.style.getPropertyPriority('position');
-    const positioned = getComputedStyle(container).position === 'static';
-    if (positioned) container.style.setProperty('position', 'relative');
+    const releasePositioning = acquirePositioning(container);
     const button = element('button', 'IMDb …', 'badge');
     button.type = 'button'; button.hidden = true;
     button.setAttribute('aria-label', `${title}: looking up IMDb rating`);
@@ -80,11 +80,7 @@ export class Overlay {
     root.append(button); container.append(host);
     return { host, container, button, dispose() {
       host.remove();
-      // Preserve site changes made after the mount took ownership.
-      if (positioned && container.style.getPropertyValue('position') === 'relative' && !container.style.getPropertyPriority('position')) {
-        if (previous) container.style.setProperty('position', previous, priority);
-        else container.style.removeProperty('position');
-      }
+      releasePositioning();
     } };
   }
 
@@ -112,6 +108,7 @@ export class Overlay {
   show(model: DetailsModel, focus = true): void {
     if (this.model?.button === model.button) { this.close(); return; }
     this.close(false);
+    claimPanel(this, () => this.close(false));
     this.model = model;
     model.button.setAttribute('aria-expanded', 'true');
     const panel = element('div', undefined, 'panel');
@@ -136,7 +133,10 @@ export class Overlay {
         panel.append(element('p', 'Matched automatically by streaming title ID via Wikidata', 'meta'));
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'netflix')
         panel.append(element('p', state.matchBasis === 'credits'
-          ? 'Netflix uses an alternate edition or language title. Matched to IMDb’s film using release year, director and cast.'
+          ? record.mediaType === 'series' ? 'Matched using Netflix’s public series identity and at least three corroborating cast members; a season year was not used as a series start year.'
+            : normaliseTitle(model.observation.displayTitle) !== normaliseTitle(record.title)
+              ? 'Netflix uses an alternate edition or language title. Matched to IMDb’s film using release year, director and cast.'
+              : 'Matched using Netflix’s public release year, director and cast to distinguish same-name films.'
           : 'Matched automatically using Netflix’s public film title, release year and type', 'meta'));
       panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
@@ -187,6 +187,7 @@ export class Overlay {
 
   closeFor(button: HTMLButtonElement): void { if (this.model?.button === button) this.close(false); }
   close(restoreFocus = true): void {
+    releasePanel(this);
     const button = this.model?.button;
     const ownedFocus = !!this.panel && this.panel.contains(this.root.activeElement);
     const fallback = this.model?.fallbackFocus();

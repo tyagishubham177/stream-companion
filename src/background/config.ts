@@ -20,8 +20,9 @@ export class Configuration {
     await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
     const value = await chrome.storage.local.get(['settings', 'credential']);
     const raw = value.settings as Partial<Settings> | undefined;
-    if (raw) this.preferences = { enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
-      corner: raw.corner === 'top-left' ? 'top-left' : 'top-right', cacheOnly: raw.cacheOnly === true };
+    if (raw) this.preferences = { ...DEFAULT_SETTINGS, enabled: raw.enabled !== false,
+      corner: raw.corner === 'top-left' ? 'top-left' : 'top-right', cacheOnly: raw.cacheOnly === true,
+      ...Object.fromEntries(['ratingsEnabled','marksEnabled','shadeWatched','fadePassed','automaticMatching','matchingLogEnabled'].map(key => [key, raw[key as keyof Settings] !== false])) };
     const saved = value.credential as { key?: string; version?: number } | undefined;
     this.version = saved?.version ?? 0;
     if (saved?.key) this.active = await this.make(saved.key, this.version);

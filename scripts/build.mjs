@@ -34,7 +34,7 @@ const common = { bundle: true, target: 'chrome120', sourcemap: false, minify: fa
 const configurations = [
   { ...common, entryPoints: ['src/background/index.ts'], outfile: 'dist/background.js', format: 'esm' },
   { ...common, entryPoints: ['src/content/index.ts'], outfile: 'dist/content.js', format: 'iife' },
-  { ...common, entryPoints: { popup: 'src/pages/popup.ts', options: 'src/pages/options.ts', correction: 'src/pages/correction.ts' }, outdir: 'dist', format: 'iife' }
+  { ...common, entryPoints: { popup: 'src/pages/popup.ts', options: 'src/pages/options.ts', correction: 'src/pages/correction.ts', titles: 'src/pages/titles.ts' }, outdir: 'dist', format: 'iife' }
 ];
 if (process.argv.includes('--watch')) {
   for (const config of configurations) { const ctx = await context(config); await ctx.watch(); }

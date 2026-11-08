@@ -1,15 +1,15 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.4.0. Matching-log verification uses a disposable synthetic MV3 profile; installed live Netflix proof below remains v0.3.1 until the user reloads. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.5.0. Version 0.5.0 verification uses disposable synthetic MV3/browser profiles; installed live Netflix evidence is labelled separately below. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 423 tests passed across fifteen files |
+| `npm test` | 509 tests passed across nineteen files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Twelve actual MV3 integration tests passed |
+| `npm run test:browser` | 23 browser tests passed: 13 actual MV3 integration, six adapter DOM and four renderer tests |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
 | Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
@@ -34,6 +34,14 @@ Test provider responses use explicitly synthetic titles and a fake key. Network 
 The browser suite verifies an unresolved source title followed by manual search/preview/confirmation; saved rank-one provenance survives a later search, direct IMDb URL input records no invented rank or raw URL, and page-two position two records rank 12. Duplicate, stale, expired and reset-conflicting confirmations create no false labels. Settings Review displays the local JSON; Download was read back byte-for-byte against that reviewed snapshot. Clear was exercised through its actual confirmation UI and removes the snapshot/records/contexts while preserving key, mappings, ratings and request accounting. Prior scrolling, expanded-hover, metadata/edition, cache/restart and runtime-reload regressions all passed. Narrow Settings and the expanded JSON/download disclosure were visually inspected.
 
 Build/typecheck/diff checks passed, and ZIP readback confirmed 14 entries, version 0.4.0, storage as the only ordinary permission, required scripts/pages and no fixture/helper/profile files. This establishes the local diagnostic feature using synthetic data; it does not claim new live catalogue match coverage. Existing installed Netflix evidence below remains explicitly labelled 0.3.1. Reloading the installed extension and refreshing Netflix is required to begin collecting real correction logs. No prior search history is invented.
+
+## Your marks and coverage verification (0.5.0)
+
+The integrated suite passes typecheck/build, 509 unit tests across nineteen files, and 23 browser tests: 13 actual MV3 integration cases, six independently bundled DOM adapter cases and four marks renderer cases. The new real-MV3 test proves marks work without an OMDb key with ratings disabled, persist across browser/worker restart, update duplicate cards and a live Your titles page, support search/latest navigation and survive independent module toggles. Renderer cases cover full-colour watched artwork under a 14% shade, rewatch intent, grayscale passed artwork, native filter/progress preservation, module cleanup, recycled identity, stale Undo and stale in-flight snapshots. Existing rating, scroll, hover, cache and runtime-reload regressions still pass.
+
+Before implementation, installed native-0.4.0 was observed on authenticated Netflix. Search rendered ratings after settling; New & Popular used classic .title-card markup, /latest was unsupported, and its playback links needed corroborating public entity identifiers. Only scoped public identifier fields were retained for the adapter; no raw tracking context, profile IDs, cookies or account state are in repository evidence. The actual user-exported matching log was inspected locally, and regression improvements target its failure categories. It remains outside Git. Public Netflix cast/type evidence was reachable; real OMDb outcomes for new fallback paths require installed verification.
+
+The broader adapter supports declared browse/title surfaces and fails closed on unsupported or ambiguous layouts. It does not modify playback/account pages. This verification does not assert that every future Netflix layout works or that every unrated provider record has a numeric score.
 
 ## Live evidence and remaining acceptance
 

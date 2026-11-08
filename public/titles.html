@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Your titles · Stream Companion</title><link rel="stylesheet" href="pages.css"><link rel="stylesheet" href="titles.css"><script src="titles.js" defer></script></head>
+<body><div class="page-shell titles-shell">
+  <header class="brand page-brand"><span class="brand-mark" aria-hidden="true">S<span>·</span></span><div><p class="eyebrow">STREAMING TOOLS</p><p class="brand-title">Stream Companion</p></div><a class="small" href="options.html">Settings</a></header>
+  <main><div class="page-heading"><p class="eyebrow">YOUR MARKS</p><h1>Your titles</h1><p class="muted">Keep favourites in reach and recover anything you marked by mistake.</p></div>
+    <p class="small muted">Saved in this Chrome profile, across Netflix profiles used here. Separate from Netflix My List.</p>
+    <div class="titles-notice"><p id="notice" class="notice" role="status" aria-live="polite">Loading your titles…</p><button id="undo" type="button" class="text-button" hidden>Undo</button></div>
+    <div class="titles-tools"><div id="filters" class="titles-filters" role="group" aria-label="Filter your titles"><button type="button" class="secondary" data-filter="all" aria-pressed="false">All <span data-count="all">0</span></button><button type="button" class="secondary" data-filter="want" aria-pressed="true">Want to watch <span data-count="want">0</span></button><button type="button" class="secondary" data-filter="watched" aria-pressed="false">Watched <span data-count="watched">0</span></button><button type="button" class="secondary" data-filter="pass" aria-pressed="false">Won’t watch <span data-count="pass">0</span></button></div><label for="title-search">Search this filter<input id="title-search" type="search" maxlength="300" autocomplete="off" placeholder="Film or series name"></label></div>
+    <p id="scope" class="small muted"></p><ul id="titles-list" class="titles-list" aria-label="Saved titles"></ul>
+    <div id="empty" class="titles-empty" hidden><h2 id="empty-heading">No titles here yet</h2><p id="empty-detail" class="muted"></p><button id="search-all" type="button" class="secondary" hidden>Search all your titles</button></div>
+  </main><footer class="page-footer"><span>Changes stay saved until you clear them. Watched titles can also be in Want to watch.</span><a href="options.html#data">Data & privacy</a></footer>
+</div></body></html>
