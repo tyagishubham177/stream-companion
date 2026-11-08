@@ -5,10 +5,11 @@ import { Repository, txGet, txPut } from '../background/repository';
 
 export type NetflixMetadataResult =
   | { kind: 'matched'; title: string; mediaType: 'movie'; year: number; checkedAt: number; credits?: FilmCredits }
+  | { kind: 'matched'; title: string; mediaType: 'series'; year?: undefined; checkedAt: number; credits?: FilmCredits }
   | { kind: 'missing' }
   | { kind: 'deferred'; reason: 'busy' | 'offline' | 'provider'; message: string; retryAfter?: number };
 type CachedMetadata = Exclude<NetflixMetadataResult, { kind: 'deferred' }>;
-interface MetadataCache { expiresAt: number; result: CachedMetadata; creditsChecked?: boolean }
+interface MetadataCache { expiresAt: number; result: CachedMetadata; creditsChecked?: boolean; parserVersion?: number }
 interface SourceState { nextAt: number; leaseUntil: number; leaseId?: string; failures: number; cooldownUntil: number; lastClock: number }
 interface Job { key: string; titleId: string; demands: Set<() => boolean>; promise: Promise<NetflixMetadataResult>; complete(value: NetflixMetadataResult): void }
 const DAY = 86400000;
@@ -60,7 +61,7 @@ function schemaTypes(value: unknown): string[] {
   return (Array.isArray(value) ? value : [value]).filter((type): type is string => typeof type === 'string')
     .map(type => type.replace(/^https?:\/\/schema\.org\//, ''));
 }
-function movieCredits(movie: Record<string, unknown>): FilmCredits | undefined {
+function movieCredits(movie: Record<string, unknown>, series = false): FilmCredits | undefined {
   const people = (value: unknown): string[] | undefined => {
     const entries = Array.isArray(value) ? value : [value];
     if (entries.length > 40 || entries.some(entry => !object(entry) || !schemaTypes(entry['@type']).includes('Person') || typeof entry.name !== 'string')) return undefined;
@@ -75,16 +76,17 @@ function movieCredits(movie: Record<string, unknown>): FilmCredits | undefined {
     return new Set(signatures).size === 1 ? lists[0] : undefined;
   };
   // Netflix publishes plural roles; accept standard singular roles too, but never infer a director from creators.
-  const directors = role('director', 'directors'), actors = role('actor', 'actors');
+  const directors = series && !Object.hasOwn(movie, 'director') && !Object.hasOwn(movie, 'directors') ? [] : role('director', 'directors'), actors = role('actor', 'actors');
   return directors && actors ? validateFilmCredits({ directors, actors }) : undefined;
 }
 function validCache(value: unknown, now: number): value is MetadataCache {
   if (!object(value) || !Number.isFinite(value.expiresAt) || Number(value.expiresAt) <= now || !object(value.result)) return false;
   const result = value.result;
-  if (result.kind === 'missing') return Number(value.expiresAt) <= now + DAY;
-  return result.kind === 'matched' && result.mediaType === 'movie' && typeof result.title === 'string' &&
+  if (result.kind === 'missing') return value.parserVersion === 2 && Number(value.expiresAt) <= now + DAY;
+  return result.kind === 'matched' && ['movie', 'series'].includes(String(result.mediaType)) && typeof result.title === 'string' &&
     result.title.length <= 300 && !!normaliseTitle(result.title) && !/[\u0000-\u001f]/.test(result.title) &&
-    Number.isInteger(result.year) && Number(result.year) >= 1888 && Number(result.year) <= new Date(now).getUTCFullYear() + 1 &&
+    (result.mediaType === 'movie' ? Number.isInteger(result.year) && Number(result.year) >= 1888 && Number(result.year) <= new Date(now).getUTCFullYear() + 1 :
+      result.year === undefined && (validateFilmCredits(result.credits)?.actors.length ?? 0) >= 3) &&
     (result.credits === undefined || !!validateFilmCredits(result.credits)) &&
     Number.isFinite(result.checkedAt) && Number(result.checkedAt) <= now && Number(value.expiresAt) <= Number(result.checkedAt) + 30 * DAY;
 }
@@ -105,16 +107,20 @@ export function parseNetflixMetadata(html: string, requestedId: string, now = Da
   }).replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
   if (/<\/?(?:script|style)\b|<!--/i.test(clean)) throw new MetadataFailure('The public title HTML was incomplete.');
   const bound = nodes.filter(node => typeof node.url === 'string' && netflixUrlId(node.url) === requestedId);
-  const movies = bound.filter(node => schemaTypes(node['@type']).includes('Movie'));
+  const series = bound.length > 0 && bound.every(node => schemaTypes(node['@type']).includes('TVSeries') && !schemaTypes(node['@type']).includes('Movie'));
+  const movies = bound.filter(node => schemaTypes(node['@type']).includes(series ? 'TVSeries' : 'Movie'));
   if (!movies.length) {
-    if (bound.length && bound.every(node => schemaTypes(node['@type']).includes('TVSeries'))) return { kind: 'missing' }; // Latest-season dates are unsafe.
     throw new MetadataFailure('Public title metadata is unavailable for this Netflix identity.');
   }
   const names = new Set(movies.map(node => typeof node.name === 'string' ? normaliseTitle(node.name) : ''));
-  if (names.size !== 1 || names.has('') || bound.some(node => schemaTypes(node['@type']).includes('TVSeries')))
+  if (names.size !== 1 || names.has('') || (!series && bound.some(node => schemaTypes(node['@type']).includes('TVSeries'))))
     throw new MetadataFailure('The public title page contained conflicting title identities.');
   const title = movies[0].name as string;
   if (title.length > 300 || /[\u0000-\u001f]/.test(title)) throw new MetadataFailure('The public title name was invalid.');
+  const available = movies.map(movie => movieCredits(movie, series));
+  const credits = available.every(value => value && JSON.stringify(value) === JSON.stringify(available[0])) ? available[0] : undefined;
+  // Never call a series' latest-season display year its start year. Without cast proof it remains unsupported.
+  if (series && (!credits || credits.actors.length < 3)) return { kind: 'missing' };
   const divs = [...clean.matchAll(/<\/?div\b[^>]*>/gi)];
   const metadata = divs.filter(match => !/^<\//.test(match[0]) && attribute(match[0].slice(4, -1), 'data-uia') === 'metadata');
   if (metadata.length !== 1) throw new MetadataFailure('A single public title metadata header was not available.');
@@ -129,6 +135,7 @@ export function parseNetflixMetadata(html: string, requestedId: string, now = Da
   const headings = [...header.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2\s*>/gi)];
   if (headings.length !== 1 || normaliseTitle(decodedText(headings[0][1])) !== normaliseTitle(title))
     throw new MetadataFailure('The public title heading did not match its structured identity.');
+  if (series) return { kind: 'matched', title, mediaType: 'series', checkedAt: now, credits: credits! };
   const afterHeading = header.slice(headings[0].index! + headings[0][0].length);
   const list = afterHeading.match(/<ul\b[^>]*>([\s\S]*?)<\/ul\s*>/i);
   const firstItem = list && !/<ul\b/i.test(list[1]) ? list[1].match(/^\s*<li\b[^>]*>([\s\S]*?)<\/li\s*>/i) : undefined;
@@ -137,8 +144,6 @@ export function parseNetflixMetadata(html: string, requestedId: string, now = Da
   if (!/^\d{4}$/.test(yearText) || year < 1888 || year > new Date(now).getUTCFullYear() + 1)
     throw new MetadataFailure('The public movie release year was not available.');
   // Duplicate bound nodes must agree on credits; missing/conflicting optional credits cannot establish an edition match.
-  const available = movies.map(movieCredits);
-  const credits = available.every(value => value && JSON.stringify(value) === JSON.stringify(available[0])) ? available[0] : undefined;
   return { kind: 'matched', title, mediaType: 'movie', year, checkedAt: now, ...(credits ? { credits } : {}) };
 }
 
@@ -272,7 +277,7 @@ export class NetflixMetadataResolver {
         }
         result = parseNetflixMetadata(html, job.titleId); break;
       }
-      await this.repo.put('resolutions', job.key, { expiresAt: result.kind === 'matched' ? result.checkedAt + 30 * DAY : Date.now() + DAY, result, creditsChecked: true } satisfies MetadataCache);
+      await this.repo.put('resolutions', job.key, { expiresAt: result.kind === 'matched' ? result.checkedAt + 30 * DAY : Date.now() + DAY, result, creditsChecked: true, parserVersion: 2 } satisfies MetadataCache);
       await this.finish(lease, 'success'); lease = undefined; return result;
     } catch (error) {
       if (error instanceof MetadataFailure) {

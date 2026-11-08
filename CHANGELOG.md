@@ -1,6 +1,17 @@
 # Changelog
 
-Versions below are matched to their committed extension manifests. Historical tags preserve those snapshots; the latest packaged release is v0.4.0.
+Versions below are matched to their committed extension manifests. Historical tags preserve those snapshots; the latest packaged release is v0.5.0.
+
+## 0.5.0 — Your marks, modular controls and catalogue coverage
+
+- Store an explicit watched flag separately from a want-to-watch or won’t-watch plan. Watched artwork retains colour under a light shade; passed titles use grayscale.
+- Add stable Mark controls, revision-safe Undo, duplicate/cross-tab updates and a searchable Your titles recovery page with export/reset controls.
+- Keep Mark visible immediately in expanded previews, with menus inside Netflix's native hover and focus boundary, including scaled and narrow cards.
+- Preserve the pressed Mark/menu control through native focus scrolling, preventing menu dismissal and click-through while retaining deliberate drag cancellation.
+- Independently toggle ratings, marks, both artwork effects, automatic matching and local matching-log recording in Settings.
+- Support modern/classic search and New & Popular cards, language/genre/person browsing and full title details. Playback/account surfaces remain outside scope.
+- Improve matching from confirmed-correction failure patterns: series require corroborating cast, duplicate film candidates require unique matching credits, translated film aliases require type/year/director/cast proof. Search rank alone never determines identity.
+- Preserve keys, corrections, caches and provider accounting during schema 3 migration; user marks have no expiry.
 
 ## 0.4.0 — Local matching evidence
 

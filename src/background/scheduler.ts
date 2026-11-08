@@ -13,6 +13,7 @@ export class DeferredError extends Error {
 type Reservation = { id: string; probeKind?: Circuit['kind'] } | { blocked: DeferredReason; retryAfter?: number };
 interface ScheduledJob {
   explicit: boolean;
+  matchingOnly: boolean;
   unconditionalDemand: boolean;
   demands: Set<() => boolean>;
   promise: Promise<unknown>;
@@ -27,7 +28,7 @@ export class Scheduler {
   private readonly startWall = Date.now();
   private readonly startMonotonic = performance.now();
   constructor(readonly repo: Repository, private readonly credential: () => Promise<Credential | undefined>, private readonly fetcher = fetch,
-    private readonly getEligibility?: () => Promise<{ enabled: boolean; cacheOnly: boolean }>) {}
+    private readonly getEligibility?: () => Promise<{ enabled: boolean; cacheOnly: boolean; automaticMatching?: boolean }>) {}
 
   async reserve(credential: Credential, explicit: boolean, retest = false, now = Date.now()): Promise<Reservation> {
     return await this.repo.transaction(['attempts', 'leases', 'state'], async tx => {
@@ -85,18 +86,19 @@ export class Scheduler {
     });
   }
 
-  request<T>(params: Record<string, string>, explicit: boolean, decode: (raw: unknown) => T, retest = false, isDemandActive?: () => boolean): Promise<T> {
-    return this.enqueue(params, explicit, decode, retest, isDemandActive);
+  request<T>(params: Record<string, string>, explicit: boolean, decode: (raw: unknown) => T, retest = false, isDemandActive?: () => boolean, matching = false): Promise<T> {
+    return this.enqueue(params, explicit, decode, retest, isDemandActive, matching);
   }
   private async checkEligibility(job: ScheduledJob, retest: boolean): Promise<void> {
     const settings = await this.getEligibility?.();
     if (settings?.cacheOnly && !retest) throw new DeferredError('provider', 'Cache-only mode is on. Turn it off in Settings to fetch ratings.');
     if (!job.explicit && settings?.enabled === false) throw new DeferredError('busy', 'Ratings are disabled. Automatic lookups are paused.');
+    if (!job.explicit && job.matchingOnly && settings?.automaticMatching === false) throw new DeferredError('busy', 'Automatic matching is disabled. Saved matches remain available.');
     if (!job.explicit && !job.unconditionalDemand && ![...job.demands].some(active => active())) {
       throw new DeferredError('busy', 'Title no longer visible. Lookup deferred until it is needed again.');
     }
   }
-  private async enqueue<T>(params: Record<string, string>, explicit: boolean, decode: (raw: unknown) => T, retest: boolean, isDemandActive?: () => boolean): Promise<T> {
+  private async enqueue<T>(params: Record<string, string>, explicit: boolean, decode: (raw: unknown) => T, retest: boolean, isDemandActive?: () => boolean, matching = false): Promise<T> {
     const credential = await this.credential();
     if (!credential) throw new DeferredError('key', 'Add your OMDb key in Settings.');
     const key = JSON.stringify([credential.id, credential.version, Object.entries(params).sort(), retest]);
@@ -104,6 +106,7 @@ export class Scheduler {
     if (existing) {
       // One disappearing tile cannot cancel another document's demand for the same ID.
       existing.explicit ||= explicit;
+      existing.matchingOnly &&= matching;
       if (isDemandActive) existing.demands.add(isDemandActive);
       else existing.unconditionalDemand = true;
       return existing.promise as Promise<T>;
@@ -113,7 +116,7 @@ export class Scheduler {
     let rejectResult!: (error: unknown) => void;
     const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
     const job: ScheduledJob = {
-      explicit, unconditionalDemand: !isDemandActive, demands: new Set(isDemandActive ? [isDemandActive] : []), promise: result,
+      explicit, matchingOnly: matching, unconditionalDemand: !isDemandActive, demands: new Set(isDemandActive ? [isDemandActive] : []), promise: result,
       run: async () => {
         try {
           if (Math.abs((Date.now() - this.startWall) - (performance.now() - this.startMonotonic)) > 300000)

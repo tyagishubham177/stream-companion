@@ -4,6 +4,7 @@ import { action, element, imdbLink, message, notice } from './ui';
 
 let currentStatus: AppStatus | undefined;
 let matchingReviewGeneration = 0;
+const featureKeys = ['ratingsEnabled','marksEnabled','shadeWatched','fadePassed','automaticMatching','matchingLogEnabled'] as const;
 const keyInput = element<HTMLInputElement>('api-key');
 const enabled = element<HTMLInputElement>('enabled');
 const cacheOnly = element<HTMLInputElement>('cache-only');
@@ -13,6 +14,7 @@ function renderStatus(status: AppStatus, updatePreferences = false): void {
   currentStatus = status;
   if (updatePreferences) {
     enabled.checked = status.settings.enabled;
+    for (const key of featureKeys) element<HTMLInputElement>(key).checked = status.settings[key] !== false;
     cacheOnly.checked = status.settings.cacheOnly;
     corner.value = status.settings.corner;
   }
@@ -117,7 +119,7 @@ element<HTMLFormElement>('preferences-form').addEventListener('submit', event =>
   void action(element<HTMLButtonElement>('save-preferences'), async () => {
     await rpc<unknown>({
       type: 'UPDATE_SETTINGS',
-      settings: { enabled: enabled.checked, cacheOnly: cacheOnly.checked, corner: corner.value === 'top-left' ? 'top-left' : 'top-right' },
+      settings: { enabled: enabled.checked, cacheOnly: cacheOnly.checked, corner: corner.value === 'top-left' ? 'top-left' : 'top-right', ...Object.fromEntries(featureKeys.map(key => [key, element<HTMLInputElement>(key).checked])) },
     });
     await refreshStatus(true);
     notice('Browsing preferences saved.');

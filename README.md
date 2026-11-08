@@ -2,7 +2,9 @@
 
 A personal Chrome extension with generic streaming branding and a modular platform boundary. **V1 adds IMDb ratings and title matching to Netflix.** The data provider is OMDb; you supply your own key in extension Settings.
 
-**0.4.0 update:** Matching decisions and manual corrections now have a bounded local evidence log. Settings → Data & privacy lets you review, download or clear it. Confirmed search selections retain their result rank and the automatic checks that preceded them; nothing is uploaded or trained automatically.
+**0.5.0 update:** Your marks adds independent watched and watch-later/skip choices, a recovery library and artwork treatments. Settings independently toggles ratings, marks, watched shading, Won’t watch grayscale, automatic matching and local matching logs. Netflix support now includes modern/classic search, New & Popular and full title details. Correction-informed matching adds cast-backed series identities, same-name film disambiguation and verified translated-title lookup.
+
+**0.4.0 matching evidence:** Matching decisions and manual corrections now have a bounded local evidence log. Settings → Data & privacy lets you review, download or clear it. Confirmed search selections retain their result rank and the automatic checks that preceded them; nothing is uploaded or trained automatically.
 
 **Automatic matching:** visible cards and expanded hover previews resolve automatically. Direct Netflix-to-IMDb mappings are checked first; films without those links can now use Netflix’s public title, release year and movie type for a strict OMDb match. Edition and language-label variants can additionally use corroborated year, director and cast evidence. Opening each title is unnecessary. Corrections remain optional, and ambiguous matches remain unresolved.
 
@@ -49,7 +51,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.4.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.5.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow Netflix public-title-page access if Chrome requests it, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
 

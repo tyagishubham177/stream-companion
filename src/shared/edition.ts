@@ -47,3 +47,18 @@ export function corroboratesEdition(metadataCredits: FilmCredits | undefined, de
   };
   return overlaps(metadata.directors, detail.directors) >= 1 && overlaps(metadata.actors, detail.actors) >= 2;
 }
+
+/** Series start years are often unavailable; require three independently matching actors instead. */
+export function corroboratesSeriesCast(metadataCredits: FilmCredits | undefined, detailCredits: FilmCredits | undefined): boolean {
+  const metadata = validateFilmCredits(metadataCredits), detail = validateFilmCredits(detailCredits);
+  if (!metadata || !detail) return false;
+  const source = new Set(metadata.actors.map(separated)), target = new Set(detail.actors.map(separated));
+  return [...source].filter(name => target.has(name)).length >= 3;
+}
+
+/** Translation aliases may differ completely, but must not drop sequel/edition identifiers. */
+export function plainTranslationAlias(source: string, candidate: string): boolean {
+  const restricted = /[():\d]|\b(?:ii|iii|iv|vi|vii|viii|ix|part|chapter|season|volume|vol)\b/iu;
+  return [source, candidate].every(title => typeof title === 'string' && title.length <= 300 &&
+    !!normalise(title) && !/[\u0000-\u001f]/.test(title) && !restricted.test(title));
+}

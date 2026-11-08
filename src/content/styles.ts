@@ -3,7 +3,7 @@ export const overlayStyles = `
 *,*::before,*::after{box-sizing:border-box}
 button,a{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.6}
 .badge{position:absolute;top:8px;right:8px;display:block;pointer-events:auto;min-height:30px;padding:5px 9px;border:1px solid #646363;border-radius:7px;background:#151718f2;color:#fff;font-size:12px;font-weight:650;line-height:18px;font-variant-numeric:tabular-nums;box-shadow:0 2px 7px #0005;white-space:nowrap;transition:background .12s,border-color .12s}
-.badge:hover{background:#272927;border-color:#f2c85d}.badge[data-rated=true]{color:#ffdf85}.badge[hidden],.panel[hidden]{display:none}
+.badge:hover{background:#272927;border-color:#f2c85d}.badge[data-rated=true]{color:var(--sc-rating-accent,#ffdf85)}.badge[hidden],.panel[hidden]{display:none}
 button:focus-visible,a:focus-visible{outline:2px solid #ffdb72;outline-offset:3px}
 .panel{position:fixed;pointer-events:auto;width:320px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:21px;border:1px solid #5a5a54;border-radius:12px;background:#171918;color:#f8f8f3;box-shadow:0 16px 50px #0008;font-size:13px;animation:enter .12s ease-out}
 .eyebrow{margin:0 32px 12px 0;color:#c9bc97;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700}

@@ -118,3 +118,16 @@ describe('scheduler dispatch eligibility and shared live demand', () => {
     expect((await scheduler.status()).count).toBe(803);
   });
 });
+
+it('cancels queued identity work when matching is disabled while allowing known rating refreshes', async()=>{
+ const repo=repository(); let enabled=true;
+ const fetcher=vi.fn<typeof fetch>(async()=>fixtureResponse());
+ const scheduler=new Scheduler(repo,async()=>credential,fetcher,async()=>({enabled:true,cacheOnly:false,automaticMatching:enabled}));
+ const reserve=vi.spyOn(scheduler,'reserve'); reserve.mockResolvedValueOnce({blocked:'busy',retryAfter:Date.now()+100});
+ const waiting=scheduler.request({s:'Fixture'},false,decode,false,()=>true,true);
+ await vi.waitFor(()=>expect(reserve).toHaveBeenCalledTimes(1)); enabled=false;
+ await expect(waiting).rejects.toMatchObject({reason:'busy'}); expect(fetcher).not.toHaveBeenCalled();
+ expect(await repo.all('attempts')).toHaveLength(0);
+ await scheduler.request({i:'tt0000001'},false,decode,false,()=>true);
+ expect(fetcher).toHaveBeenCalledTimes(1);
+});

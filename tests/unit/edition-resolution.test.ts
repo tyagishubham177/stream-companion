@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS, ratingKey, titleKey, type Mapping, type TitleObservation } from '../../src/shared/contracts';
+import { DEFAULT_SETTINGS, RESOLVER_VERSION, ratingKey, titleKey, type Mapping, type TitleObservation } from '../../src/shared/contracts';
 import { Resolver } from '../../src/background/resolver';
 import { Repository } from '../../src/background/repository';
 import type { Configuration } from '../../src/background/config';
@@ -51,7 +51,7 @@ describe('corroborated edition resolution', () => {
       { s: baseTitle, y: '2026', type: 'movie', page: '1' },
       { i: id, plot: 'short' },
     ]);
-    expect((await repo.get<Mapping>('mappings', titleKey(ref)))?.resolverVersion).toBe(4);
+    expect((await repo.get<Mapping>('mappings', titleKey(ref)))?.resolverVersion).toBe(RESOLVER_VERSION);
   });
 
   it('falls back after an exact provider not_found rather than caching it too early', async () => {

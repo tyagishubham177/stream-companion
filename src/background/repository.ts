@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION } from '../shared/contracts';
 
-export const STORES = ['mappings', 'ratings', 'resolutions', 'contexts', 'state', 'attempts', 'leases', 'matchingLogs'] as const;
+export const STORES = ['mappings', 'ratings', 'resolutions', 'contexts', 'state', 'attempts', 'leases', 'matchingLogs', 'marks'] as const;
 export type Store = typeof STORES[number];
 interface Entry<T> { key: string; value: T }
 export const idbRequest = <T>(request: IDBRequest<T>): Promise<T> => new Promise((resolve, reject) => {

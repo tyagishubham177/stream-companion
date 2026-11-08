@@ -69,7 +69,7 @@ export class ContentController {
     if (!message || typeof message !== 'object') return false;
     if ('type' in message && message.type === 'SC_GET_PAGE_STATS') { respond(this.stats()); return false; }
     if ('type' in message && message.type === 'SC_INVALIDATE') {
-      const update = message as Broadcast;
+      const update = message as Extract<Broadcast, { type: 'SC_INVALIDATE' }>;
       for (const tile of this.tiles.values()) {
         if (!update.ref || titleKey(tile.observation.ref) === titleKey(update.ref)) {
           if (update.revision !== undefined) tile.revision = Math.max(tile.revision, update.revision);
@@ -139,7 +139,7 @@ export class ContentController {
       this.navigation = navigation; this.epoch++; this.enrichment.clear(); this.knownObservations.clear(); this.detach();
     }
     this.adapter = adapter;
-    if (!this.status?.settings.enabled || !adapter || document.hidden) { this.detach(); return; }
+    if ((!this.status?.settings.enabled || this.status.settings.ratingsEnabled === false) || !adapter || document.hidden) { this.detach(); return; }
     if (!this.overlay) this.attach();
     else this.reposition();
   }
@@ -335,7 +335,7 @@ export class ContentController {
     state.timer = setTimeout(() => {
       state.timer = undefined;
       if (epoch === this.epoch && generation === state.generation && this.tiles.get(state.tile) === state &&
-        state.visible && !state.button.hidden && !document.hidden && !this.adapter?.isObscured()) {
+        state.visible && !state.button.hidden && !document.hidden && !this.adapter?.isObscured(state.tile)) {
         state.requested = false; void this.lookup(state);
       }
     }, delay);
@@ -345,7 +345,7 @@ export class ContentController {
     if (state.requested || state.timer || document.hidden || !this.status?.settings.enabled) return;
     state.timer = setTimeout(() => {
       state.timer = undefined;
-      if (state.visible && !state.button.hidden && state.tile.isConnected && !document.hidden && !this.adapter?.isObscured()) void this.lookup(state);
+      if (state.visible && !state.button.hidden && state.tile.isConnected && !document.hidden && !this.adapter?.isObscured(state.tile)) void this.lookup(state);
     }, 120);
   }
 
@@ -400,11 +400,11 @@ export class ContentController {
 
   private position(): void {
     if (!this.overlay) return;
-    const obscured = this.adapter?.isObscured() || document.hidden;
+    const hidden = document.hidden;
     for (const state of this.tiles.values()) {
       const corner = this.adapter?.badgeCorner?.(state.tile) ?? this.status?.settings.corner ?? 'top-right';
       if (state.mount.host.dataset.corner !== corner) state.mount.host.dataset.corner = corner;
-      if (obscured || !state.visible || !state.tile.isConnected || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) { this.hideTile(state); continue; }
+      if (hidden || this.adapter?.isObscured(state.tile) || !state.visible || !state.tile.isConnected || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) { this.hideTile(state); continue; }
       state.button.hidden = false;
       this.renewDemand(state);
       if (!state.requested) this.queueLookup(state);

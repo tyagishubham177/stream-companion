@@ -45,7 +45,7 @@ describe('trusted configuration persistence and concurrent edits', () => {
     expect(await config.settings()).toEqual(DEFAULT_SETTINGS);
     release();
     await Promise.all([disable, move]);
-    expect(await config.settings()).toEqual({ enabled: false, cacheOnly: false, corner: 'top-left' });
+    expect(await config.settings()).toEqual({ ...DEFAULT_SETTINGS, enabled: false, corner: 'top-left' });
     expect(stored.settings).toEqual(await config.settings());
   });
 
@@ -78,3 +78,10 @@ describe('trusted configuration persistence and concurrent edits', () => {
     expect(await config.credential()).toMatchObject({ key: 'synthetic-key-b', version: 2 });
   });
 });
+
+ it('migrates old settings and preserves independent feature toggles', async () => {
+  const {config,stored}=fixture(); stored.settings={enabled:true,corner:'top-left',cacheOnly:false};
+  expect(await config.settings()).toEqual({...DEFAULT_SETTINGS,corner:'top-left'});
+  await config.update({ratingsEnabled:false,marksEnabled:true,shadeWatched:false,automaticMatching:false,matchingLogEnabled:false});
+  expect(await config.settings()).toMatchObject({enabled:true,ratingsEnabled:false,marksEnabled:true,shadeWatched:false,fadePassed:true,automaticMatching:false,matchingLogEnabled:false});
+ });

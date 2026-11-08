@@ -1,17 +1,17 @@
 # Stream Companion v1 verification
 
-Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.4.0. Matching-log verification uses a disposable synthetic MV3 profile; installed live Netflix proof below remains v0.3.1 until the user reloads. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
+Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.5.0. Version 0.5.0 verification uses disposable synthetic MV3/browser profiles; installed live Netflix evidence is labelled separately below. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Passed |
-| `npm test` | 423 tests passed across fifteen files |
+| `npm test` | 509 tests passed across nineteen files |
 | `npm run build` | Passed; locally bundled MV3 extension |
-| `npm run test:browser` | Twelve actual MV3 integration tests passed |
+| `npm run test:browser` | 28 browser tests passed: 13 actual MV3 integration, six adapter DOM and nine renderer tests |
 | Dependency audit | Zero reported vulnerabilities after locked dependency installation |
-| Archive creation and readback | Passed; 14 files, manifest and required entrypoints present |
+| Archive creation and readback | Passed; 18 files, manifest and required entrypoints present |
 | `git diff --check` | Passed |
 | Screenshot review | Desktop settings/correction/badges and narrow settings reviewed |
 
@@ -34,6 +34,22 @@ Test provider responses use explicitly synthetic titles and a fake key. Network 
 The browser suite verifies an unresolved source title followed by manual search/preview/confirmation; saved rank-one provenance survives a later search, direct IMDb URL input records no invented rank or raw URL, and page-two position two records rank 12. Duplicate, stale, expired and reset-conflicting confirmations create no false labels. Settings Review displays the local JSON; Download was read back byte-for-byte against that reviewed snapshot. Clear was exercised through its actual confirmation UI and removes the snapshot/records/contexts while preserving key, mappings, ratings and request accounting. Prior scrolling, expanded-hover, metadata/edition, cache/restart and runtime-reload regressions all passed. Narrow Settings and the expanded JSON/download disclosure were visually inspected.
 
 Build/typecheck/diff checks passed, and ZIP readback confirmed 14 entries, version 0.4.0, storage as the only ordinary permission, required scripts/pages and no fixture/helper/profile files. This establishes the local diagnostic feature using synthetic data; it does not claim new live catalogue match coverage. Existing installed Netflix evidence below remains explicitly labelled 0.3.1. Reloading the installed extension and refreshing Netflix is required to begin collecting real correction logs. No prior search history is invented.
+
+## Your marks and coverage verification (0.5.0)
+
+The integrated suite passes typecheck/build, 509 unit tests across nineteen files, and 28 browser tests: 13 actual MV3 integration cases, six independently bundled DOM adapter cases and nine marks renderer cases. The new real-MV3 test proves marks work without an OMDb key with ratings disabled, persist across browser/worker restart, update duplicate cards and a live Your titles page, support search/latest navigation and survive independent module toggles. Renderer cases cover full-colour watched artwork under a 14% shade, rewatch intent, grayscale passed artwork, native filter/progress preservation, module cleanup, recycled identity, stale Undo and stale in-flight snapshots. Existing rating, scroll, hover, cache and runtime-reload regressions still pass.
+
+Installed 0.5.0 exposed a hover usability regression: an unmarked control could remain hidden when Netflix mounted a preview under a stationary pointer, and a menu outside the native preview could dismiss it or lose focus. Expanded controls now appear immediately, and their menus are descendants of the native mini/detail owner. Four renderer regressions cover ratings on/off, scaled previews, a narrow viewport, simulated native hover dismissal and focus trapping. The real-MV3 preview case also verifies an owner-contained menu, Want to watch and Undo.
+
+After the user reloaded the first hover fix, live DOM readback confirmed the new expanded flag, a visible Mark control and an owner-contained menu with focus on Watched. The live click test then exposed another failure: the page moved while opening the menu, and selecting Want to watch dismissed the menu without saving and started playback. Playback was stopped immediately by returning to browse; the title remained unmarked. The controller's unconditional foreign-scroll dismissal can remove the menu during focus/bring-into-view scrolling.
+
+The follow-up lets local menus travel with their native owner while preserving page-scroll dismissal for global grid menus. Mark, Close and choice buttons retain their pointer target during layout movement; actual pointer dragging or cancellation still cancels activation, and keyboard clicks retain their normal path. The regression reproduces scrolling between pointerdown and pointerup, including 80 CSS pixels in both an overflow-hidden owner and the page. Netflix's native focus scrolling itself is not overridden.
+
+After a further extension reload and Netflix refresh, the installed follow-up passed the targeted live acceptance on three expanded cards. An unmarked series saved Want to watch and Undo restored No marks. An already-watched movie saved the additional Want to watch plan while retaining Watched, and Undo restored Watched alone. A second series opened and closed its marks menu successfully. The tested save/Undo/Close interactions stayed on `/browse` without starting playback. All temporary plan changes were restored. The screenshot remains local rather than publishing the user's catalogue or profile. This is a three-card native smoke check, not a claim of catalogue-wide compatibility; scaled/narrow layouts, module toggles and other routes retain their separately labelled fixture coverage.
+
+Before implementation, installed native-0.4.0 was observed on authenticated Netflix. Search rendered ratings after settling; New & Popular used classic .title-card markup, /latest was unsupported, and its playback links needed corroborating public entity identifiers. Only scoped public identifier fields were retained for the adapter; no raw tracking context, profile IDs, cookies or account state are in repository evidence. The actual user-exported matching log was inspected locally, and regression improvements target its failure categories. It remains outside Git. Public Netflix cast/type evidence was reachable; real OMDb outcomes for new fallback paths require installed verification.
+
+The broader adapter supports declared browse/title surfaces and fails closed on unsupported or ambiguous layouts. It does not modify playback/account pages. This verification does not assert that every future Netflix layout works or that every unrated provider record has a numeric score.
 
 ## Live evidence and remaining acceptance
 

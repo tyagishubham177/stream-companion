@@ -37,6 +37,7 @@ export const candidateRecord = (record: { subject: { id: string }; title: string
 // Never pass requests, credentials, raw provider responses, URLs or Error objects here.
 export class MatchingLog {
   failed = false;
+  recording = true;
   constructor(readonly repo: Repository, readonly version: string) {}
   event(kind: MatchEvent['kind'], observation: TitleObservation, revision: number, epoch: number,
     data: Partial<Pick<MatchEvent, 'sessionId' | 'automatic' | 'search' | 'candidate' | 'selection' | 'previousImdbId' | 'comparison' | 'reason'>> = {}, logEpoch = 0): MatchEvent {
@@ -49,6 +50,7 @@ export class MatchingLog {
     if (written) this.failed = false;
   }
   async appendInTransaction(tx: IDBTransaction, event: MatchEvent, key = event.id, prune = true): Promise<boolean> {
+    if (!this.recording) return true;
     if ((await txGet<number>(tx, 'state', 'matchingLogEpoch') ?? 0) !== event.logEpoch) return false;
     txPut(tx, 'matchingLogs', key, event);
     if (prune) await this.prune(tx, event.at);
@@ -75,6 +77,7 @@ export class MatchingLog {
     return event && event.at >= Date.now() - LOG_RETENTION ? event.automatic : undefined;
   }
   async automatic(observation: TitleObservation, revision: number, epoch: number, state: LookupState, steps: MatchStep[], logEpoch?: number): Promise<void> {
+    if (!this.recording) return;
     logEpoch ??= await this.generation();
     if (state.kind === 'disabled' || state.kind === 'setup_required') return;
     const outcome: AutomaticDecision['outcome'] = { kind: state.kind,

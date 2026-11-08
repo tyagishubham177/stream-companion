@@ -1,8 +1,8 @@
 import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState, type Candidate, type SearchResult } from '../shared/contracts';
 import { contradicts, hasStrongEvidence, normaliseTitle, observationFingerprint, supportedCandidate, usableYear } from '../shared/identity';
-import { corroboratesEdition, editionTitleMatches, filmSearchAlias, validateFilmCredits } from '../shared/edition';
+import { corroboratesEdition, corroboratesSeriesCast, editionTitleMatches, filmSearchAlias, plainTranslationAlias, validateFilmCredits } from '../shared/edition';
 import { ratingCacheState } from '../shared/freshness';
-import { parseDetail, parseSearch, ProviderError } from '../providers/omdb';
+import { parseDetail, parseTitleDetail, parseSearch, ProviderError } from '../providers/omdb';
 import { Repository, txGet, txPut } from './repository';
 import { DAY, DeferredError, Scheduler } from './scheduler';
 import type { Configuration } from './config';
@@ -18,9 +18,10 @@ export class Resolver {
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
     private readonly directIds?: DirectIds, private readonly metadata?: Metadata, private readonly matchingLog?: MatchingLog) {}
   private async saveResolution(key: string, value: Resolution, trace: MatchStep[], logEpoch: number): Promise<void> {
+    const loggingEnabled = (await this.config.settings()).matchingLogEnabled !== false;
     await this.repo.transaction(['resolutions', 'state'], async tx => {
       const currentLogEpoch = await txGet<number>(tx, 'state', 'matchingLogEpoch') ?? 0;
-      txPut(tx, 'resolutions', key, { ...value, ...(currentLogEpoch === logEpoch ? { trace, traceEpoch: logEpoch } : {}) });
+      txPut(tx, 'resolutions', key, { ...value, ...(loggingEnabled && this.matchingLog?.recording !== false && currentLogEpoch === logEpoch ? { trace, traceEpoch: logEpoch } : {}) });
     });
   }
   async detail(id: string, explicit: boolean, retest = false): Promise<RatingRecord> {
@@ -54,7 +55,7 @@ export class Resolver {
         // The caller will reattach after the mapping invalidation broadcast.
         return { state: { kind: 'needs_match', reason: 'contradiction' }, fingerprint, revision: currentRevision };
       }
-      if (this.matchingLog && !refresh && mapping?.method !== 'manual') {
+      if (this.matchingLog && !refresh && mapping?.method !== 'manual' && (await this.config.settings()).matchingLogEnabled !== false) {
         try { await this.matchingLog.automatic(o, currentRevision, resetEpoch, state, steps, logEpoch); }
         catch { this.matchingLog.failed = true; } // Ratings remain usable; Settings reports the logging failure.
       }
@@ -65,18 +66,19 @@ export class Resolver {
   }
   private async resolve(o: TitleObservation, mapping: Mapping | undefined, refresh: boolean, resetEpoch: number, demand: () => boolean, steps: MatchStep[], logEpoch: number): Promise<LookupState> {
     const settings = await this.config.settings();
-    if (!settings.enabled) return { kind: 'disabled' };
+    if (!settings.enabled || settings.ratingsEnabled === false) return { kind: 'disabled' };
     let cache: RatingRecord | undefined;
     let directSnapshot: DirectIdResult | undefined;
     let metadataSnapshot: NetflixMetadataResult | undefined;
     const revalidateSource = mapping?.method === 'automatic' && mapping.provenance?.source === 'wikidata' &&
-      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && !!this.directIds;
+      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && settings.automaticMatching !== false && !!this.directIds;
     if (revalidateSource) directSnapshot = await this.directIds!.resolve(o.ref, demand);
     const revalidateMetadata = mapping?.method === 'automatic' && mapping.provenance?.source === 'netflix' &&
-      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && !!this.metadata;
+      Date.now() - mapping.provenance.checkedAt >= 30 * DAY && !refresh && !settings.cacheOnly && settings.automaticMatching !== false && !!this.metadata;
     if (revalidateMetadata) metadataSnapshot = await this.metadata!.resolve(o.ref, demand);
-    const metadataChanged = metadataSnapshot?.kind === 'matched' && !!mapping && !supportedCandidate(mapping.evidence,
-      { id: mapping.subject?.id ?? '', title: metadataSnapshot.title, year: String(metadataSnapshot.year), mediaType: 'movie' });
+    const metadataChanged = metadataSnapshot?.kind === 'matched' && !!mapping && (metadataSnapshot.mediaType === 'series'
+      ? mapping.evidence.mediaType !== 'series' || normaliseTitle(mapping.evidence.displayTitle) !== normaliseTitle(metadataSnapshot.title)
+      : !supportedCandidate(mapping.evidence, { id: mapping.subject?.id ?? '', title: metadataSnapshot.title, year: String(metadataSnapshot.year), mediaType: 'movie' }));
     if (metadataSnapshot?.kind === 'matched' && !metadataChanged) {
       const checkedAt = metadataSnapshot.checkedAt;
       await this.repo.transaction(['mappings', 'state'], async tx => {
@@ -118,7 +120,7 @@ export class Resolver {
         return stateFromMapping(record, mapping);
       } catch (error) { return cachedOrDeferred(cache, mapping.method, error); }
     }
-    if (refresh) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    if (refresh || settings.automaticMatching === false) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     if (!(await this.config.credential())) return { kind: 'setup_required' };
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     let evidence = o;
@@ -137,7 +139,7 @@ export class Resolver {
         try {
           const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: direct.imdbId }));
           const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
-            await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false, raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand);
+            await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false, raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand, true);
           await this.repo.put('ratings', ratingKey(record.subject), record);
           steps.push({ stage: 'direct_detail', outcome: contradicts(o, record) ? 'contradiction' : 'supported', candidate: candidateRecord(record) });
           if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
@@ -168,20 +170,22 @@ export class Resolver {
         steps.push({ stage: 'netflix_metadata', outcome: result.kind === 'deferred' ? `deferred:${result.reason}` : result.kind });
         if (result.kind === 'deferred') return { ...result };
         if (result.kind === 'matched') {
-          if (contradicts(o, { year: String(result.year), mediaType: 'movie' })) return { kind: 'needs_match', reason: 'contradiction' };
+          if ((o.mediaType !== 'unknown' && o.mediaType !== result.mediaType) ||
+            (result.mediaType === 'movie' && contradicts(o, { year: String(result.year), mediaType: 'movie' }))) return { kind: 'needs_match', reason: 'contradiction' };
           metadataMatch = result;
-          evidence = { ...o, displayTitle: result.title, mediaType: 'movie', year: { value: result.year, meaning: 'movie_release' },
+          evidence = { ...o, displayTitle: result.title, mediaType: result.mediaType,
+            year: result.mediaType === 'movie' ? { value: result.year, meaning: 'movie_release' } : undefined,
             aliases: [...new Set([o.displayTitle, ...(o.aliases ?? [])])].filter(title => title !== result.title) };
-          steps.push({ stage: 'enriched_evidence', outcome: 'movie_release_verified', evidence });
+          steps.push({ stage: 'enriched_evidence', outcome: result.mediaType === 'movie' ? 'movie_release_verified' : 'series_type_and_cast_verified', evidence });
         }
       }
-      if (!hasStrongEvidence(evidence)) {
+      if (!hasStrongEvidence(evidence) && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
         steps.push({ stage: 'evidence', outcome: 'missing_usable_year_or_type' });
         if (direct.kind === 'deferred') return { kind: 'deferred', reason: direct.reason, message: direct.message, retryAfter: direct.retryAfter };
         return { kind: 'needs_match', reason: direct.kind === 'ambiguous' ? 'ambiguous' : 'not_found' };
       }
     }
-    if (!hasStrongEvidence(evidence)) {
+    if (!hasStrongEvidence(evidence) && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
       steps.push({ stage: 'evidence', outcome: 'missing_usable_year_or_type' });
       return { kind: 'needs_match', reason: 'insufficient_evidence' };
     }
@@ -205,7 +209,7 @@ export class Resolver {
         if (attempts >= 3) throw new DeferredError('provider', 'Automatic matching has used its attempt limit. Use Match title to continue.');
         txPut(tx, 'resolutions', resolutionKey, { attempts: attempts + 1, expiresAt: Date.now() + 6 * 3600000 });
       }, true);
-      try { return await this.scheduler.request(params, false, decode, false, demand); }
+      try { return await this.scheduler.request(params, false, decode, false, demand, true); }
       catch (error) {
         if (error instanceof DeferredError) await this.repo.transaction(['resolutions'], async tx => {
           const old = await txGet<Resolution>(tx, 'resolutions', resolutionKey);
@@ -216,7 +220,7 @@ export class Resolver {
     };
     const search = async (title: string): Promise<SearchResult> => {
       let result: SearchResult;
-      try { result = await automaticRequest({ s: title, y: String(usableYear(evidence)), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1)); }
+      try { result = await automaticRequest({ s: title, ...(usableYear(evidence) !== undefined ? { y: String(usableYear(evidence)) } : {}), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1)); }
       catch (error) {
         if (error instanceof ProviderError && error.kind === 'not_found') result = { candidates: [], total: 0, page: 1 };
         else {
@@ -229,16 +233,70 @@ export class Resolver {
           candidates: result.candidates.map(candidate => ({ ...candidate, checks: candidateChecks(evidence, candidate, mapping?.rejected ?? []) })) } });
       return result;
     };
+    const detailWithCredits = async (id: string): Promise<RatingRecord> => {
+      const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
+      const record = cached && ratingCacheState(cached) === 'fresh' && validateFilmCredits(cached.credits) ? cached :
+        await automaticRequest({ i: id, plot: 'short' }, raw => parseDetail(raw, id, Date.now()));
+      await this.repo.put('ratings', ratingKey(record.subject), record); return record;
+    };
+    const accept = async (record: RatingRecord, creditMatch: boolean): Promise<LookupState> => {
+      if (mapping?.rejected.includes(record.subject.id) || contradicts(o, record)) return await save({ kind: 'needs_match', reason: 'contradiction' });
+      if (creditMatch) evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
+      const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
+        const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
+        if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(record.subject.id)) return false;
+        txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
+          evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
+          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
+        return true;
+      });
+      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined, creditMatch ? 'credits' : undefined);
+      const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
+      return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
+        ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
+    };
     try {
       const result = await search(evidence.displayTitle);
       // An incomplete candidate set cannot establish a unique identity.
       if (result.total > result.candidates.length) return await save({ kind: 'needs_match', reason: 'ambiguous' });
+      if (metadataMatch?.mediaType === 'series') {
+        const seriesCandidates = result.candidates.filter(candidate => candidate.mediaType === 'series' &&
+          [evidence.displayTitle, ...(evidence.aliases ?? [])].some(title => normaliseTitle(title) === normaliseTitle(candidate.title)) && !mapping?.rejected.includes(candidate.id));
+        if (!seriesCandidates.length || seriesCandidates.length > 2) return await save({ kind: 'needs_match', reason: seriesCandidates.length ? 'ambiguous' : 'not_found' });
+        const verified: RatingRecord[] = [];
+        for (const candidate of seriesCandidates) {
+          const record = await detailWithCredits(candidate.id);
+          const supported = record.mediaType === 'series' && normaliseTitle(candidate.title) === normaliseTitle(record.title) &&
+            !contradicts(o, record) && corroboratesSeriesCast(metadataMatch.credits, record.credits);
+          steps.push({ stage: 'series_cast_detail', outcome: supported ? 'supported_three_actors' : 'contradiction', candidate: candidateRecord(record) });
+          if (supported) verified.push(record);
+        }
+        return verified.length === 1 ? await accept(verified[0], true) : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
+      }
       let candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
+      if (candidates.length === 2 && metadataMatch && !/[()]/.test(metadataMatch.title) && corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
+        const verified: RatingRecord[] = [];
+        for (const candidate of candidates) {
+          const record = await detailWithCredits(candidate.id);
+          const supported = supportedCandidate(evidence, candidateRecord(record)) && corroboratesEdition(metadataMatch.credits, record.credits);
+          steps.push({ stage: 'ambiguous_movie_credits', outcome: supported ? 'supported' : 'contradiction', candidate: candidateRecord(record) });
+          if (supported) verified.push(record);
+        }
+        return verified.length === 1 ? await accept(verified[0], true) : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
+      }
       let creditMatch = false;
       const alias = metadataMatch ? filmSearchAlias(metadataMatch.title) : null;
       const base = alias ?? evidence.displayTitle;
       const editionCandidate = (candidate: Candidate): boolean => candidate.mediaType === 'movie' && /^\d{4}$/.test(candidate.year) &&
         Number(candidate.year) === usableYear(evidence) && editionTitleMatches(base, candidate.title) && !mapping?.rejected.includes(candidate.id);
+      if (!candidates.length && result.total === 0 && !alias && metadataMatch && !/[()]/.test(metadataMatch.title) && corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
+        const record = await automaticRequest({ t: evidence.displayTitle, y: String(usableYear(evidence)), type: 'movie', plot: 'short' }, raw => parseTitleDetail(raw, Date.now()));
+        await this.repo.put('ratings', ratingKey(record.subject), record);
+        const supported = record.mediaType === 'movie' && record.year === String(usableYear(evidence)) &&
+          plainTranslationAlias(evidence.displayTitle, record.title) && corroboratesEdition(metadataMatch.credits, record.credits);
+        steps.push({ stage: 'title_query_credits', outcome: supported ? 'supported' : 'contradiction', candidate: candidateRecord(record) });
+        return supported ? await accept(record, true) : await save({ kind: 'needs_match', reason: 'contradiction' });
+      }
       if (candidates.length === 0 && metadataMatch && this.metadata) {
         candidates = result.candidates.filter(editionCandidate);
         if (!candidates.length && alias) {
@@ -274,19 +332,7 @@ export class Resolver {
       steps.push({ stage: creditMatch ? 'edition_detail_and_credits' : 'candidate_detail', outcome: verified ? 'supported' : 'contradiction',
         candidate: candidateRecord(record), checks: creditMatch ? [corroboratesEdition(metadataMatch?.credits, record.credits) ? 'credits_supported' : 'credits_missing_or_conflicting'] : candidateChecks(evidence, candidateRecord(record), mapping?.rejected ?? []) });
       if (!verified) return await save({ kind: 'needs_match', reason: 'contradiction' });
-      if (creditMatch) evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
-      const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
-        const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
-        if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch) return false;
-        txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
-          evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
-          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
-        return true;
-      });
-      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined, creditMatch ? 'credits' : undefined);
-      const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
-      return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
-        ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
+      return await accept(record, creditMatch);
     } catch (error) {
       if (error instanceof ProviderError && error.kind === 'not_found') return await save({ kind: 'needs_match', reason: 'not_found' });
       return cachedOrDeferred(undefined, 'automatic', error);

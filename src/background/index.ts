@@ -8,16 +8,19 @@ import { DeferredError, Scheduler } from './scheduler';
 import { Resolver, candidateChecks, stateFromRecord } from './resolver';
 import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
+import { MarksService, MarkError } from './marks';
 import { MatchingLog, candidateRecord, type AutomaticDecision, type MatchEvent, type SearchEvidence, type SearchSelection } from './matching-log';
 
 const repo = new Repository();
 const config = new Configuration();
-const scheduler = new Scheduler(repo, () => config.credential(), fetch, () => config.settings());
-const directIds = new WikidataResolver(repo, () => config.settings());
-const metadata = new NetflixMetadataResolver(repo, () => config.settings());
+const marks = new MarksService(repo);
+const scheduler = new Scheduler(repo, () => config.credential(), fetch, async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false }; });
+const matchingEligibility = async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false && s.automaticMatching !== false }; };
+const directIds = new WikidataResolver(repo, matchingEligibility);
+const metadata = new NetflixMetadataResolver(repo, matchingEligibility);
 const matchingLog = new MatchingLog(repo, chrome.runtime.getManifest().version);
 const resolver = new Resolver(repo, scheduler, config, directIds, metadata, matchingLog);
-const ready = Promise.all([config.ready(), repo.open()]);
+const ready = Promise.all([config.ready(), repo.open()]).then(async () => { matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; });
 // Prevent a rejected startup promise becoming an unhandled rejection before the first message.
 void ready.catch(() => undefined);
 interface StoredContext extends CorrectionContext {
@@ -65,6 +68,15 @@ async function register(sender: chrome.runtime.MessageSender): Promise<void> {
   await mutateClients(clients => { clients[documentId] = { tabId, documentId }; });
 }
 async function broadcast(message: Broadcast): Promise<void> {
+  if (message.type === 'SC_MARKS_CHANGED') {
+    // Runtime messages reach trusted extension pages; tab messages reach content scripts.
+    try { await chrome.runtime.sendMessage(message); }
+    catch (error) {
+      const detail = error instanceof Error ? error.message : '';
+      if (!/Receiving end does not exist|message port closed|port closed before|Could not establish connection/i.test(detail))
+        console.warn('[Stream Companion] Saved marks could not be broadcast to extension pages. Reopen Your titles to refresh.');
+    }
+  }
   const { clients = {} } = await chrome.storage.session.get('clients') as { clients?: Record<string, Client> };
   const failed: string[] = [];
   await Promise.all(Object.values(clients).map(async client => {
@@ -180,11 +192,26 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
     switch (request.type) {
       case 'GET_PUBLIC_STATUS': return await publicStatus();
       case 'GET_STATUS': return await status();
+      case 'GET_MARKS': return await marks.get(request.refs);
+      case 'LIST_MARKS': return await marks.list();
+      case 'SET_MARK': {
+        const settings = await config.settings();
+        if (role === 'content' && (!settings.enabled || !settings.marksEnabled)) throw new MarkError('Title marks are disabled. Enable them in Settings.');
+        const result = await marks.set(request.observation, { ...('watched' in request ? { watched: request.watched } : {}), ...('plan' in request ? { plan: request.plan } : {}) }, request.revision, request.epoch);
+        await broadcast({ type: 'SC_MARKS_CHANGED', ref: request.observation.ref }); return result;
+      }
+      case 'UNDO_MARK': {
+        const result = await marks.undo(request.ref, request.operationId, request.revision, request.epoch);
+        await broadcast({ type: 'SC_MARKS_CHANGED', ref: request.ref }); return result;
+      }
+      case 'RESET_MARKS': await marks.reset(); await broadcast({ type: 'SC_MARKS_CHANGED' }); return null;
+      case 'EXPORT_MARKS': return { product: 'Stream Companion', format: 1, generatedAt: new Date().toISOString(), ...(await marks.export()) };
+      case 'OPEN_TITLES': await chrome.tabs.create({ url: chrome.runtime.getURL('titles.html') }); return null;
       case 'OPEN_SETTINGS': await chrome.runtime.openOptionsPage(); return null;
       case 'LOOKUP': return await resolver.lookup(request.observation, false, undefined, liveDemand(sender, request.observation.ref));
       case 'RELEASE_DEMAND': releaseDemand(sender.documentId!, request.ref); return null;
       case 'REFRESH': return await resolver.lookup(request.observation, true, request.revision);
-      case 'UPDATE_SETTINGS': await config.update(request.settings); await broadcast({ type: 'SC_INVALIDATE' }); return null;
+      case 'UPDATE_SETTINGS': await config.update(request.settings); matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'SET_API_KEY': await config.setKey(request.key.trim()); await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'REMOVE_API_KEY': await config.setKey(''); await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'TEST_API_KEY': {
@@ -303,7 +330,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         return { product: 'Stream Companion', version: chrome.runtime.getManifest().version, protocol: PROTOCOL_VERSION,
           generatedAt: new Date().toISOString(), enabled: app.settings.enabled, cacheOnly: app.settings.cacheOnly,
           keyConfigured: app.keyConfigured, providerState: app.provider.kind, requests24h: app.requests24h,
-          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, matchingLogFailed: matchingLog.failed, platforms: ['netflix'], features: ['ratings'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
+          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, matchingLogFailed: matchingLog.failed, platforms: ['netflix'], features: ['ratings', 'marks'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
       }
     }
   } finally {
@@ -316,7 +343,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
 chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
   if (!(raw && typeof raw === 'object' && 'protocol' in raw)) return false;
   void route(raw, sender).then(value => respond({ ok: true, value })).catch(error => {
-    const message = error instanceof ProviderError || error instanceof DeferredError ? error.message :
+    const message = error instanceof ProviderError || error instanceof DeferredError || error instanceof MarkError ? error.message :
       error instanceof Error && /^(Invalid |Unsupported |Message sender|This page|Enter |The (saved )?match|The match changed|This correction|Preview |Use a valid|This title|Too many|Wait a minute|Close other)/.test(error.message) ? error.message :
         'The extension could not complete this action. Check local storage and try again.';
     respond({ ok: false, error: message });

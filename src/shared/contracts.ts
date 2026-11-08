@@ -1,8 +1,8 @@
 import type { FilmCredits } from './edition';
 
 export const PROTOCOL_VERSION = 1;
-export const RESOLVER_VERSION = 4;
-export const SCHEMA_VERSION = 2;
+export const RESOLVER_VERSION = 5;
+export const SCHEMA_VERSION = 3;
 export const PRODUCT_NAME = 'Stream Companion';
 
 export interface PlatformTitleRef { platformId: string; titleId: string }
@@ -44,7 +44,11 @@ export type LookupState =
 export interface LookupResult {
   state: LookupState; fingerprint: string; revision: number;
 }
-export interface Settings { enabled: boolean; corner: 'top-right' | 'top-left'; cacheOnly: boolean }
+export interface Settings {
+  enabled: boolean; corner: 'top-right' | 'top-left'; cacheOnly: boolean;
+  ratingsEnabled: boolean; marksEnabled: boolean; shadeWatched: boolean; fadePassed: boolean;
+  automaticMatching: boolean; matchingLogEnabled: boolean;
+}
 export interface PublicStatus {
   settings: Settings; keyConfigured: boolean;
   provider: { kind: 'ready' | 'setup' | 'paused'; message: string; retryAfter?: number };
@@ -80,9 +84,16 @@ export type Request =
   | { type: 'CLEAR_RATING_CACHE' }
   | { type: 'EXPORT_DIAGNOSTICS' }
   | { type: 'EXPORT_MATCHING_LOG' }
-  | { type: 'CLEAR_MATCHING_LOG' };
+  | { type: 'CLEAR_MATCHING_LOG' }
+  | { type: 'GET_MARKS'; refs: PlatformTitleRef[] }
+  | { type: 'SET_MARK'; observation: TitleObservation; watched?: boolean; plan?: 'none' | 'want' | 'pass'; revision: number; epoch: number }
+  | { type: 'UNDO_MARK'; ref: PlatformTitleRef; operationId: string; revision: number; epoch: number }
+  | { type: 'LIST_MARKS' }
+  | { type: 'RESET_MARKS' }
+  | { type: 'EXPORT_MARKS' }
+  | { type: 'OPEN_TITLES' };
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
-export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number };
-export const DEFAULT_SETTINGS: Settings = { enabled: true, corner: 'top-right', cacheOnly: false };
+export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef };
+export const DEFAULT_SETTINGS: Settings = { enabled: true, corner: 'top-right', cacheOnly: false, ratingsEnabled: true, marksEnabled: true, shadeWatched: true, fadePassed: true, automaticMatching: true, matchingLogEnabled: true };
 export const titleKey = (ref: PlatformTitleRef): string => JSON.stringify([ref.platformId, ref.titleId]);
 export const ratingKey = (subject: ExternalTitleRef): string => JSON.stringify(['omdb', 'imdb', subject.namespace, subject.id]);
