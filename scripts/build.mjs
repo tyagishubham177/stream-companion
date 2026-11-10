@@ -3,6 +3,10 @@ import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+const manifest = JSON.parse(await readFile('public/manifest.json', 'utf8'));
+if (manifest.version !== version) throw new Error(`Manifest version ${manifest.version} does not match package version ${version}.`);
+
 // Bundled geometric mark. PNGs are generated locally with no runtime dependencies.
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -41,7 +45,6 @@ if (process.argv.includes('--watch')) {
   console.log('Watching TypeScript. Re-run npm run build after changing public HTML/CSS. Reload the extension in Chrome.');
 } else {
   await Promise.all(configurations.map(config => build(config)));
-  const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
   for (const file of [manifest.background.service_worker, manifest.action.default_popup, manifest.options_ui.page, ...manifest.content_scripts.flatMap(c => c.js)])
     await readFile(path.join('dist', file));
   const entries = await readdir('dist');

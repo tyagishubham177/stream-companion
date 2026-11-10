@@ -479,6 +479,7 @@ test('hover previews rate the title instead of its Play episode and clear confli
   const preview = browse.locator('#hover-preview');
   const badge = preview.locator('[data-sc-root="badge"] .badge');
   await expect(badge).toHaveText('★ IMDb 8.2');
+  await expect(badge).toBeVisible();
   await expect(browse.locator('[data-sc-root="badge"]')).toHaveCount(4);
   expect(await badge.evaluate(button => {
     const container = (button.getRootNode() as ShadowRoot).host.parentElement!;

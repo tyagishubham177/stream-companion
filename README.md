@@ -55,7 +55,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.6.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.6.1.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow JioHotstar access if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections, cache and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 

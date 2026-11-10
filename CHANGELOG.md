@@ -2,6 +2,12 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.6.1 — Hotstar ratings before hover
+
+- Remember confirmed poster identities across Home, TV and reloads. Include a small set of verified public posters that can be rated before a first hover.
+- Use Hotstar’s visible featured IMDb score when the accessible metadata repeats it.
+- Retry incomplete searches for completed series using the corroborated IMDb start year, and require an exact season count before accepting a rating.
+
 ## 0.6.0 — JioHotstar and simpler feature controls
 
 - Put independent IMDb ratings and Mark as watched switches in the popup and at the top of Settings.

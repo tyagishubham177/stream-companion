@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Companion",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "IMDb ratings and personal title marks while browsing Netflix and JioHotstar.",
   "minimum_chrome_version": "120",
   "permissions": ["storage"],

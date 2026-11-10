@@ -1,6 +1,6 @@
 # Stream Companion v1 verification
 
-## JioHotstar and primary feature switches (0.6.0)
+## JioHotstar and primary feature switches (0.6.0–0.6.1)
 
 Disposable-profile Hotstar MV3 cases cover independent Settings and popup switches, marks without a key, Save and Undo, canonical library links, same-number title isolation across platforms, cached detail ratings and playback teardown. They also cover the series ID on Continue Watching and explicit native IMDb scores without provider calls. The isolated settings smoke check included a 320px viewport. The ZIP contains 18 files, `storage` as the only ordinary permission, and the JioHotstar India content-script scope.
 
@@ -8,9 +8,13 @@ Before implementation, live JioHotstar DOM inspection established the shapes for
 
 The first follow-up sampled Home, TV, Movies and the `crime`, `The Office` and `Hindi thriller` searches. The TV route was missing; a `crime` snapshot showed three numeric film ratings and eleven unresolved series among fourteen visible badges. After reloading the route fix, the TV hero rendered a badge, but all eight collapsed posters in its first row were blank before hover. The Home hero for Obsession had a native IMDb 7.8 in a visually rendered metadata group whose accessibility label repeated the score. Search identified The Office as a Hotstar series with nine seasons and a displayed year of 2013, but the extension reported ambiguous.
 
-The next build persists an exact artwork, title and type association only after a same-row preview confirms the whole-work link. Eleven public Home/TV associations are built in, with no bundled ratings; fixture checks cover first sight, reload, cross-route reuse, and rejection of different artwork with the same title. An unfamiliar unlinked poster needs a first preview. A title with a complete run, at least three confirmed seasons and a matching final year can trigger a narrowed OMDb search using the candidate's actual start year. The complete narrowed result must confirm the same exact candidate and the detail must confirm its season count. The resolver version advances to retry cached misses. Neither the new rating coverage nor The Office's live outcome should be inferred from the fixture result.
+0.6.1 persists an exact artwork, title and type association only after a same-row preview confirms the whole-work link. Eleven public Home/TV associations are built in, with no bundled ratings; fixture checks cover first sight, reload, cross-route reuse, and rejection of different artwork with the same title. An unfamiliar unlinked poster needs a first preview. A title with a complete run, at least three confirmed seasons and a matching final year can trigger a narrowed OMDb search using the candidate's actual start year. The complete narrowed result must confirm the same exact candidate and the detail must confirm its season count. The resolver version advances to retry cached misses.
 
-Typecheck, build and all 627 unit tests passed. All 33 browser scenarios passed across the full run and a focused Hotstar rerun, which corrected a test locator for an already-selected mark. The five Hotstar cases use the built extension in a disposable Chrome profile with synthetic provider responses.
+Typecheck, build, all 627 unit tests and the full 33-scenario browser suite passed for 0.6.1. The five Hotstar cases use the built extension in a disposable Chrome profile with synthetic provider responses.
+
+After the extension was reloaded with the fix, the live Home sample showed Singapore Saloon 6.0, Monster Island 2.8, and Saawariya 5.2 before hover (three numeric ratings out of eight ordinary visible posters). The TV sample showed Modern Family 8.5 before hover (one out of eight); The Gilded Age and MobLand had badges but no automatic match. Search showed The Office 9.0 via OMDb; the Home hero displayed Obsession 7.8 with JioHotstar attribution. This was the same behavior build before the package version was raised to 0.6.1. The samples do not establish catalogue-wide coverage.
+
+The canonical detail pages displayed native Hotstar IMDb scores for The Gilded Age (8.1) and MobLand (8.3). Those scores are visible on the detail pages, but the current build does not obtain them in the background for the TV cards.
 
 The provider uses [Wikidata's JioHotstar ID property](https://www.wikidata.org/wiki/Property:P11049) in a separate batch namespace with shared transport limits. Hotstar film and series fallback tests verify exact film year/type matching and three-actor corroboration, and reject conflicting cast. The fixture suite does not establish live rating coverage across the JioHotstar catalogue.
 
