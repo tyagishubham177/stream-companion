@@ -1,4 +1,4 @@
-import type { TitleObservation } from '../../shared/contracts';
+import type { HotstarPosterRatingRequest, TitleObservation } from '../../shared/contracts';
 import { validateFilmCredits } from '../../shared/edition';
 import { normaliseTitle } from '../../shared/identity';
 import type { StreamingPlatformAdapter } from '../contracts';
@@ -109,11 +109,16 @@ function progressOwner(tile: HTMLElement): { link: HTMLElement; work: Work; titl
 }
 
 function publicPosterAsset(image: HTMLImageElement): string | null {
-  try {
-    const url = new URL(image.currentSrc || image.getAttribute('src') || '', HOTSTAR_ORIGIN);
-    if (url.origin !== 'https://img10.hotstar.com' || url.username || url.password) return null;
-    return url.pathname.match(/\/sources\/r1\/cms\/prod\/\d{1,12}\/([A-Za-z0-9_-]{1,100}(?:\.[A-Za-z0-9]{1,5})?)$/)?.[1] ?? null;
-  } catch { return null; }
+  const asset = (src: string) => {
+    try {
+      const url = new URL(src, HOTSTAR_ORIGIN);
+      if (url.origin !== 'https://img10.hotstar.com' || url.username || url.password) return null;
+      return url.pathname.match(/\/sources\/r1\/cms\/prod\/\d{1,12}\/([A-Za-z0-9_-]{1,100}(?:\.[A-Za-z0-9]{1,5})?)$/)?.[1] ?? null;
+    } catch { return null; }
+  };
+  const source = asset(image.getAttribute('src') ?? '');
+  // A recycled img can still show the previous currentSrc until its new art loads.
+  return source && (!image.currentSrc || asset(image.currentSrc) === source) ? source : null;
 }
 
 function posterAction(tile: HTMLElement): HTMLElement | null {
@@ -286,6 +291,15 @@ function mountTarget(tile: HTMLElement): HTMLElement | null {
   return container && !container.closest('a,button,[role="link"]') ? container : null;
 }
 
+function unlinkedPoster(tile: HTMLElement): HotstarPosterRatingRequest | null {
+  if (!tile.matches(DEFAULT) || isCovered(tile) || tile.closest(`${HOVER},${DETAIL},${FEATURED}`) ||
+    [...tile.querySelectorAll(LINK)].some(anchor => !anchor.closest(HOVER) && linkedWork(anchor, true))) return null;
+  const poster = posterIdentity(tile);
+  // An existing binding (including an explicit conflict) takes priority over a title guess.
+  if (!poster || hotstarPosterBinding(poster.key) !== undefined) return null;
+  return { key: poster.key, title: poster.title, mediaType: poster.mediaType };
+}
+
 export const hotstarAdapter: StreamingPlatformAdapter = {
   id: 'hotstar', version: VERSION,
   supports: hotstarBrowseSurface,
@@ -301,6 +315,8 @@ export const hotstarAdapter: StreamingPlatformAdapter = {
     return tiles.filter(tile => !!observation(tile));
   },
   observeTitle: observation,
+  findPosterCandidates(root) { return root.querySelectorAll<HTMLElement>(DEFAULT); },
+  observePoster: unlinkedPoster,
   badgeContainer(tile) {
     const container = mountTarget(tile);
     if (!container) return null;

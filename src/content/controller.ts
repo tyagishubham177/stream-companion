@@ -8,6 +8,7 @@ import { Overlay, type BadgeMount } from './overlay';
 import { automaticRetryDelay, canResumeOnDemand } from '../features/ratings/recovery';
 import { DAY_MS, ratingCacheState } from '../shared/freshness';
 import { showReconnectNotice } from './reconnect';
+import { PosterRatings } from './poster-ratings';
 
 interface TileState {
   tile: HTMLElement;
@@ -29,6 +30,7 @@ export class ContentController {
   private status: PublicStatus | null = null;
   private adapter: StreamingPlatformAdapter | undefined;
   private overlay: Overlay | null = null;
+  private posterRatings?: PosterRatings;
   private tiles = new Map<HTMLElement, TileState>();
   private enrichment = new Map<string, TitleObservation>();
   private knownObservations = new Map<string, TitleObservation>();
@@ -51,6 +53,9 @@ export class ContentController {
   private readonly reposition = (): void => {
     if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.position(); });
   };
+  private readonly artworkLoaded = (event: Event): void => {
+    if (event.target instanceof HTMLImageElement) this.scheduleScan();
+  };
   private readonly scroll = (event: Event): void => {
     // Cards scroll natively. Dismiss details without moving focus or measuring cards.
     if (!this.overlay || !event.composedPath().includes(this.overlay.host)) this.overlay?.close(false);
@@ -71,6 +76,7 @@ export class ContentController {
     if ('type' in message && message.type === 'SC_GET_PAGE_STATS') { respond(this.stats()); return false; }
     if ('type' in message && message.type === 'SC_INVALIDATE') {
       const update = message as Extract<Broadcast, { type: 'SC_INVALIDATE' }>;
+      if (!update.ref) this.posterRatings?.invalidate();
       for (const tile of this.tiles.values()) {
         if (!update.ref || titleKey(tile.observation.ref) === titleKey(update.ref)) {
           if (update.revision !== undefined) tile.revision = Math.max(tile.revision, update.revision);
@@ -103,6 +109,7 @@ export class ContentController {
       const previous = this.status;
       this.status = status;
       if (previous && (previous.keyConfigured !== status.keyConfigured || previous.settings.cacheOnly !== status.settings.cacheOnly)) {
+        this.posterRatings?.invalidate();
         for (const tile of this.tiles.values()) this.invalidateTile(tile);
       } else if (previous?.provider.kind !== 'ready' && status.provider.kind === 'ready') {
         for (const tile of this.tiles.values()) if (tile.state?.kind === 'deferred') this.invalidateTile(tile);
@@ -151,7 +158,7 @@ export class ContentController {
     this.intersection = new IntersectionObserver(entries => {
       for (const entry of entries) {
         const state = this.tiles.get(entry.target as HTMLElement);
-        if (!state) continue;
+        if (!state) { this.posterRatings?.visibility(entry); continue; }
         const wasVisible = state.visible;
         state.visible = entry.isIntersecting && entry.intersectionRatio > 0;
         if (state.visible) {
@@ -165,6 +172,9 @@ export class ContentController {
       }
       this.reposition();
     }, { threshold: [0, 0.1] });
+    if (this.adapter?.observePoster)
+      this.posterRatings = new PosterRatings(this.adapter, this.overlay, this.intersection, this.reposition, () => this.disconnect());
+    if (this.posterRatings) document.addEventListener('load', this.artworkLoaded, true);
     this.mutation = new MutationObserver(records => {
       let changed = false;
       for (const record of records) {
@@ -176,6 +186,7 @@ export class ContentController {
           if (owner instanceof HTMLElement) {
             const state = this.tiles.get(owner);
             if (state) { this.syncIdentity(state); break; }
+            if (record.attributeName !== 'style' && record.attributeName !== 'class' && this.posterRatings?.check(owner)) break;
           }
           owner = owner.parentElement;
         }
@@ -215,6 +226,7 @@ export class ContentController {
       if (!state.tile.isConnected || this.adapter.badgeContainer(state.tile) !== state.mount.container || !state.mount.host.isConnected || !this.syncIdentity(state)) this.removeTile(state);
     }
     const candidates = Array.from(this.adapter.findTiles(document));
+    this.posterRatings?.scan(document);
     const observations = candidates.flatMap(tile => { const o = this.adapter?.observeTitle(tile); return o ? [o] : []; });
     for (const observation of observations) {
       const key = titleKey(observation.ref);
@@ -417,6 +429,7 @@ export class ContentController {
       this.renewDemand(state);
       if (!state.requested) this.queueLookup(state);
     }
+    if (this.status) this.posterRatings?.position(this.status.settings);
     this.overlay.positionPanel();
   }
 
@@ -433,6 +446,8 @@ export class ContentController {
     this.epoch++; clearTimeout(this.scanTimer); this.scanTimer = undefined;
     if (document.hidden) { this.statusRequest++; clearTimeout(this.statusTimer); this.statusTimer = undefined; }
     this.mutation?.disconnect(); this.mutation = null;
+    document.removeEventListener('load', this.artworkLoaded, true);
+    this.posterRatings?.dispose(); this.posterRatings = undefined;
     this.intersection?.disconnect(); this.intersection = null;
     for (const tile of this.tiles.values()) this.removeTile(tile);
     this.overlay?.dispose(); this.overlay = null;
@@ -442,7 +457,8 @@ export class ContentController {
     const all = [...this.tiles.values()];
     return {
       platformId: this.adapter?.id ?? (location.hostname === 'www.hotstar.com' ? 'hotstar' : 'netflix'), supported: !!this.adapter,
-      tiles: all.length, rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length,
+      tiles: all.length + (this.posterRatings?.size ?? 0),
+      rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length + (this.posterRatings?.rated ?? 0),
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,
       cached: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,
     };

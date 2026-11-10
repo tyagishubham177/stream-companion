@@ -21,16 +21,28 @@ const nativeScoreTile = `<div id="native-score" data-testid="action"><a data-tes
   <div class="native-score" aria-label="Trending, IMDb 7.8"><span aria-hidden="true"><span data-testid="textTag">IMDb 7.8</span>
     <span data-testid="textTag">IMDb 9.9</span></span></div></a></div>`;
 const pairedImage = (asset: string) => `https://img10.hotstar.com/image/upload/f_auto/sources/r1/cms/prod/7001/${asset}.jpg`;
-const pairedPoster = (id: string, asset: string, title = 'Fixture Paired Show') => `<div id="${id}" data-testid="tray-card-default"><div data-testid="action" aria-label="${title}, Show">
+const posterCard = (id: string, asset: string, title: string, category: 'Show' | 'Movie' = 'Show') =>
+  `<div id="${id}" data-testid="tray-card-default"><div data-testid="action" aria-label="${title},${category}">
   <span data-testid="hs-image"><img src="${pairedImage(asset)}" alt="${title}"></span></div></div>`;
+const pairedTitle = 'Twins';
 const verifiedAsset = 'https://img10.hotstar.com/image/upload/f_auto/sources/r1/cms/prod/7001/617539-v';
-const verifiedRow = pairedPoster('verified-poster', '617539-v', 'Modern Family').replace(pairedImage('617539-v'), verifiedAsset) +
-  pairedPoster('different-poster', 'fixture-paired-b', 'Modern Family');
-const tvRow = `<div id="tv-row"><div id="tv-posters">${pairedPoster('paired-poster', 'fixture-paired-a')}${pairedPoster('neighbor-poster', 'fixture-paired-b')}</div>
+const verifiedRow = posterCard('verified-poster', '617539-v', 'Modern Family').replace(pairedImage('617539-v'), verifiedAsset) +
+  posterCard('different-poster', 'fixture-paired-b', 'Modern Family');
+const tvRow = `<div id="tv-row"><div id="tv-posters">${posterCard('paired-poster', 'fixture-paired-a', pairedTitle)}
+  ${posterCard('neighbor-poster', 'fixture-paired-b', pairedTitle)}</div>
   <div id="tv-hover-owner" role="button" hidden><div id="tv-preview" data-testid="tray-card-hover"><div data-testid="card-hover-container">
-  ${image('Fixture Paired Show artwork')}<div data-testid="card-hover-title-cutout"><img src="${poster}" alt="Fixture Paired Show"></div>
+  ${image(`${pairedTitle} artwork`)}<div data-testid="card-hover-title-cutout"><img src="${poster}" alt="${pairedTitle}"></div>
   <span data-testid="textTag">2025</span><span data-testid="textTag">2 Seasons</span><a data-testid="link" href="${pairedShowPath}/watch">Play show</a>
   </div></div></div></div>`;
+const uniqueTitle = 'Fixture Harbor';
+const ambiguousTitle = 'Fixture Midnight';
+const uniquePosterId = 'tt9100111';
+const ambiguousPosterIds = ['tt9100112', 'tt9100113'];
+const uniquePosterAsset = 'fixture-harbor-v';
+const ambiguousPosterAsset = 'fixture-midnight-v';
+const unlinkedRow = posterCard('ambiguous-poster', ambiguousPosterAsset, ambiguousTitle, 'Movie') +
+  posterCard('unlinked-poster', uniquePosterAsset, uniqueTitle, 'Movie') +
+  posterCard('duplicate-poster', uniquePosterAsset, uniqueTitle, 'Movie');
 const decoys = `<div id="decoys"><div data-testid="action">${image('Unlinked poster')}</div>
   <div data-testid="action"><a data-testid="link" href="/in/clips/fixture-clip/9104/watch">${image('Fixture Clip')}</a></div></div>`;
 const netflixTile = '<div id="netflix-tile" data-uia="title-card"><a data-uia="standard-card" aria-label="Fixture Netflix Film" href="/browse?jbv=9101">Fixture Netflix Film</a></div>';
@@ -68,14 +80,17 @@ function document(body: string) {
 
 const hotstarIds: Record<string, string> = { '9101': 'tt9100101', '9102': 'tt9100102', '9103': 'tt9100103', '9105': 'tt9100105', '9106': 'tt9100106', '9912': 'tt9100999', '8549': 'tt9100107' };
 const netflixIds: Record<string, string> = { '9101': 'tt9100201' };
-const ratings: Record<string, { title: string; type: string; score: string }> = {
+const ratings: Record<string, { title: string; type: string; score: string; year?: string }> = {
   tt0133093: { title: 'Connection fixture', type: 'movie', score: '8.0' },
   tt9100101: { title: 'Fixture Film', type: 'movie', score: '8.1' },
   tt9100102: { title: 'Fixture Show', type: 'series', score: '8.2' },
   tt9100103: { title: 'Fixture Preview', type: 'movie', score: '8.3' },
   tt9100105: { title: 'Fixture Native Score', type: 'movie', score: '7.1' },
-  tt9100106: { title: 'Fixture Paired Show', type: 'series', score: '8.4' },
+  tt9100106: { title: pairedTitle, type: 'series', score: '8.4' },
   tt9100107: { title: 'Modern Family', type: 'series', score: '8.5' },
+  [uniquePosterId]: { title: uniqueTitle, type: 'movie', score: '8.4' },
+  [ambiguousPosterIds[0]]: { title: ambiguousTitle, type: 'movie', score: '7.2' },
+  [ambiguousPosterIds[1]]: { title: ambiguousTitle, type: 'movie', score: '5.6', year: '2021' },
   tt9100201: { title: 'Fixture Netflix Film', type: 'movie', score: '7.4' },
 };
 let context: BrowserContext;
@@ -118,18 +133,29 @@ test.beforeAll(async ({}, info) => {
     if (url.hostname === 'www.omdbapi.com') {
       const id = url.searchParams.get('i');
       const search = url.searchParams.get('s');
-      if (search) omdbSearches.push(search);
+      if (search) {
+        omdbSearches.push(search);
+        const candidates = search === uniqueTitle ? [uniquePosterId] : search === ambiguousTitle ? ambiguousPosterIds : [];
+        if (candidates.length && url.searchParams.get('type') === 'movie' && url.searchParams.get('page') === '1') {
+          return route.fulfill({ json: { Response: 'True', totalResults: String(candidates.length),
+            Search: candidates.map(imdbID => ({
+              Title: ratings[imdbID].title, Year: ratings[imdbID].year ?? '2020', Type: 'movie', imdbID,
+            })) } });
+        }
+      }
       if (!id || !ratings[id]) return route.fulfill({ json: { Response: 'False', Error: 'Movie not found!' } });
       detailCalls.push(id);
       const entry = ratings[id];
-      return route.fulfill({ json: { Response: 'True', Title: entry.title, Year: '2020', Type: entry.type,
+      return route.fulfill({ json: { Response: 'True', Title: entry.title, Year: entry.year ?? '2020', Type: entry.type,
         imdbID: id, imdbRating: entry.score, imdbVotes: '1,234' } });
     }
-    if ([pairedImage('fixture-paired-a'), pairedImage('fixture-paired-b'), verifiedAsset].includes(url.href)) {
+    if (url.href === verifiedAsset || ['fixture-paired-a', 'fixture-paired-b', uniquePosterAsset, ambiguousPosterAsset]
+      .some(asset => url.href === pairedImage(asset))) {
       return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="160"><rect width="260" height="160" fill="teal"/></svg>' });
     }
     if (url.origin === hotstar) {
-      const markup = url.pathname === moviePath ? detail : url.pathname === '/in/shows' || url.searchParams.has('poster-memory') ? tvRow :
+      const markup = url.pathname === moviePath ? detail : url.searchParams.has('unlinked-posters') ? unlinkedRow :
+        url.pathname === '/in/shows' || url.searchParams.has('poster-memory') ? tvRow :
         url.pathname === '/in/tv' ? verifiedRow : `${movieTile}${showTile}${hoverTile}${nativeScoreTile}${decoys}`;
       return route.fulfill({ contentType: 'text/html', body: document(markup) });
     }
@@ -312,7 +338,7 @@ test('Hotstar remembers a verified TV poster on Home and after reload, without t
   await page.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
   await expect(mark(hover)).toHaveAttribute('aria-label', /Want to watch/);
   await page.locator('#tv-hover-owner').evaluate(owner => { (owner as HTMLElement).hidden = true; });
-  await expect(mark(target)).toHaveAttribute('aria-label', /^Fixture Paired Show: Want to watch/);
+  await expect(mark(target)).toHaveAttribute('aria-label', /^Twins: Want to watch/);
   await expect(badge(target)).toHaveText('★ IMDb 8.4');
   await expect(mark(neighbor)).toHaveCount(0);
   await expect(badge(neighbor)).toHaveCount(0);
@@ -329,7 +355,7 @@ test('Hotstar remembers a verified TV poster on Home and after reload, without t
   await page.goto(`${hotstar}/in/home?poster-memory=1`);
   await expect(hover).toBeHidden();
   await expect(badge(target)).toHaveText('★ IMDb 8.4');
-  await expect(mark(target)).toHaveAttribute('aria-label', /^Fixture Paired Show: Want to watch/);
+  await expect(mark(target)).toHaveAttribute('aria-label', /^Twins: Want to watch/);
   await expect(badge(neighbor)).toHaveCount(0);
   expect(detailCalls).toHaveLength(priorDetails);
   await mark(target).press('Enter');
@@ -346,5 +372,49 @@ test('Hotstar bootstraps a verified public poster on first sight, but leaves a s
   await expect(mark(page.locator('#verified-poster'))).toBeEnabled();
   await expect(badge(page.locator('#different-poster'))).toHaveCount(0);
   await expect(mark(page.locator('#different-poster'))).toHaveCount(0);
+  await page.close();
+});
+
+test('Hotstar rates unseen Home posters before hover only when their title search is unambiguous', async () => {
+  const page = await context.newPage();
+  const priorIdentities = identityCalls.length;
+  const priorSearches = omdbSearches.length;
+  const priorDetails = detailCalls.length;
+  await page.goto(`${hotstar}/in/home?unlinked-posters=1`);
+  const target = page.locator('#unlinked-poster');
+  const duplicate = page.locator('#duplicate-poster');
+  const ambiguous = page.locator('#ambiguous-poster');
+  await expect(page.locator('main a, [data-testid="tray-card-hover"]')).toHaveCount(0);
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+  await expect(badge(duplicate)).toHaveText('☆ IMDb 8.4');
+  await expect(badge(ambiguous)).toHaveCount(0);
+  await expect(mark(page)).toHaveCount(0);
+  expect(omdbSearches.slice(priorSearches).sort()).toEqual([uniqueTitle, ambiguousTitle].sort());
+  expect(detailCalls.slice(priorDetails)).toEqual([uniquePosterId]);
+  expect(identityCalls).toHaveLength(priorIdentities);
+
+  await badge(target).press('Enter');
+  const details = page.getByRole('dialog', { name: uniqueTitle });
+  await expect(details).toContainText('Possible IMDb match by title and type');
+  await expect(details.getByRole('link', { name: 'Open IMDb' })).toHaveAttribute('href', `https://www.imdb.com/title/${uniquePosterId}/`);
+  await expect(details.getByRole('button')).toHaveCount(1);
+  await expect(details.getByRole('button', { name: 'Close rating details' })).toBeVisible();
+
+  await page.reload();
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+  await expect(badge(duplicate)).toHaveText('☆ IMDb 8.4');
+  await target.locator('[data-testid="action"]').evaluate((action, { title, artwork }) => {
+    action.setAttribute('aria-label', `${title},Movie`);
+    const img = action.querySelector('img')!;
+    img.alt = title;
+    img.src = artwork;
+  }, { title: ambiguousTitle, artwork: pairedImage(ambiguousPosterAsset) });
+  await expect(badge(target)).toHaveCount(0);
+  await expect(badge(ambiguous)).toHaveCount(0);
+  await expect(badge(duplicate)).toHaveText('☆ IMDb 8.4');
+  expect(omdbSearches.slice(priorSearches).sort()).toEqual([uniqueTitle, ambiguousTitle].sort());
+  expect(detailCalls.slice(priorDetails)).toEqual([uniquePosterId]);
+  expect(identityCalls).toHaveLength(priorIdentities);
+  expect(await page.evaluate(() => Reflect.get(window, 'fixtureLinkClicks'))).toBe(0);
   await page.close();
 });

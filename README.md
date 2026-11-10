@@ -10,7 +10,7 @@ A personal Chrome extension for **IMDb ratings and title marks on Netflix and Ji
 
 **Automatic matching:** supported visible cards and expanded previews use public platform IDs first. Film title, type and release year can support a strict OMDb match. Public cast on a title page can distinguish same-name series without treating a season date as the series start. Corrections remain optional, and ambiguous matches remain unresolved.
 
-On JioHotstar India, the extension supports Home, TV, Movies, search results, linked browsing cards, Continue Watching, expanded previews and title details. Some collapsed posters expose only a name and image. The extension remembers a verified poster-to-title match locally and can then show ratings and marks before hover, including after a reload or moving between Home and TV. A small set of verified public posters works on the first visit. An unfamiliar unlinked poster still needs a Hotstar preview to confirm its identity. See [verification](docs/verification.md) for the tested cases and limits.
+On JioHotstar India, the extension supports Home, TV, Movies, search results, linked browsing cards, Continue Watching, expanded previews and title details. For an unlinked poster that stays in view, it can show a possible IMDb rating if a complete OMDb search yields one exact title and type and its detail agrees. These badges use an outlined star (`☆`); ambiguous and very short titles stay blank. When a preview confirms the Hotstar identity, the extension remembers it locally across reloads and can show the normal rating badge and marks. See [verification](docs/verification.md) for the tested cases and limits.
 
 Hotstar scores labelled IMDb appear with JioHotstar attribution. Other series can resolve through OMDb when the title, season count and a confirmed start or end year agree. The displayed Hotstar year stays separate from the series premiere year.
 
@@ -55,7 +55,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.6.1.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.6.2.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow JioHotstar access if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections, cache and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 

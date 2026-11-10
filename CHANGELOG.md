@@ -2,6 +2,11 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.6.2 — Hotstar poster coverage
+
+- Look up visible Hotstar posters that expose a title and type but no title link, without requiring hover or playback. An outlined star identifies a possible IMDb title match; ambiguous searches stay blank.
+- Cache and deduplicate those lookups separately from confirmed Hotstar identities. Keep watch marks and saved corrections tied to a verified title link.
+
 ## 0.6.1 — Hotstar ratings before hover
 
 - Remember confirmed poster identities across Home, TV and reloads. Include a small set of verified public posters that can be rated before a first hover.

@@ -14,12 +14,12 @@ export interface BadgeMount {
 }
 
 export interface DetailsModel {
-  observation: TitleObservation;
+  observation: Pick<TitleObservation, 'displayTitle'>;
   state: BadgeState | null;
   button: HTMLButtonElement;
   fallbackFocus(): HTMLElement | null;
-  refresh(): Promise<void>;
-  correct(): Promise<void>;
+  refresh?(): Promise<void>;
+  correct?(): Promise<void>;
   settings(): Promise<void>;
 }
 
@@ -84,9 +84,9 @@ export class Overlay {
     } };
   }
 
-  updateBadge(button: HTMLButtonElement, observation: TitleObservation, state: BadgeState | null): void {
+  updateBadge(button: HTMLButtonElement, observation: DetailsModel['observation'], state: BadgeState | null): void {
     button.textContent = badgeText(state);
-    const score = state?.kind === 'hotstar_score' ? state.score : state?.kind === 'rated' ? state.record.score : null;
+    const score = state?.kind === 'hotstar_score' ? state.score : state?.kind === 'rated' || state?.kind === 'poster_rated' ? state.record.score : null;
     button.dataset.rated = String(score !== null);
     const rating = score === null ? '' : ` ${score.toFixed(1)} out of 10.`;
     button.setAttribute('aria-label', `${observation.displayTitle}: ${stateDescription(state)}.${rating} Open details`);
@@ -120,7 +120,7 @@ export class Overlay {
     close.addEventListener('click', () => this.close());
     panel.append(element('p', 'Stream Companion / Ratings', 'eyebrow'), close);
     const state = model.state;
-    const record = state?.kind === 'rated' || state?.kind === 'unrated' ? state.record : null;
+    const record = state?.kind === 'rated' || state?.kind === 'unrated' || state?.kind === 'poster_rated' ? state.record : null;
     const heading = element('h2', record?.title ?? model.observation.displayTitle); heading.id = 'sc-title';
     panel.append(heading);
     if (state?.kind === 'hotstar_score') {
@@ -153,6 +153,7 @@ export class Overlay {
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
     }
     panel.append(element('p', stateDescription(state)));
+    if (state?.kind === 'poster_rated') panel.append(element('p', 'Hotstar hasn’t confirmed this poster’s exact title. The rating is for the IMDb result shown above.'));
     if (state?.kind === 'needs_match') panel.append(element('p', 'Automatic lookup could not identify a single title. You can choose a match if you want; browsing does not require it.'));
     if (state?.kind === 'deferred' && state.retryAfter) {
       panel.append(element('p', `Eligible to retry after ${new Date(state.retryAfter).toLocaleString()}`, 'meta'));
@@ -171,13 +172,13 @@ export class Overlay {
     };
     if (state?.kind === 'setup_required') act('Open settings', model.settings, true);
     else if (state && state.kind !== 'hotstar_score') {
-      act(record ? 'Wrong match?' : 'Find a match', model.correct, !record);
+      if (model.correct) act(record ? 'Wrong match?' : 'Find a match', model.correct, !record);
       if (record) {
         const imdb = element('a', 'Open IMDb');
         imdb.href = `https://www.imdb.com/title/${record.subject.id}/`;
         imdb.target = '_blank'; imdb.rel = 'noopener noreferrer';
         actions.append(imdb);
-        act('Refresh', model.refresh);
+        if (model.refresh) act('Refresh', model.refresh);
       }
     }
     panel.append(actions, feedback);

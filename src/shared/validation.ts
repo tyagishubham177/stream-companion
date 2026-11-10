@@ -1,6 +1,6 @@
 import { netflixBrowseSurface } from '../platforms/netflix';
 import { HOTSTAR_ORIGIN, hotstarBrowseSurface, hotstarObservationPath, hotstarTitlePath } from '../platforms/hotstar/routes';
-import { HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type Request, type TitleObservation } from './contracts';
+import { HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type HotstarPosterRatingRequest, type Request, type TitleObservation } from './contracts';
 import { validateFilmCredits } from './edition';
 import { normaliseTitle } from './identity';
 
@@ -35,33 +35,46 @@ export function validObservation(v: unknown): v is TitleObservation {
     typeof v.year.meaning === 'string' && ['movie_release', 'series_start', 'season_release', 'unknown'].includes(v.year.meaning));
 }
 
-export function validHotstarPosterEntry(entry: unknown): entry is HotstarPosterEntry {
-  if (!isObject(entry) || !only(entry, ['key', 'value']) || !string(entry.key, 1, 800)) return false;
+function posterKeyParts(key: unknown): [asset: string, title: string, mediaType: 'movie' | 'series'] | null {
+  if (!string(key, 1, 800)) return null;
   let parts: unknown;
-  try { parts = JSON.parse(entry.key); } catch { return false; }
-  if (!Array.isArray(parts) || parts.length !== 3 || JSON.stringify(parts) !== entry.key) return false;
+  try { parts = JSON.parse(key); } catch { return null; }
+  if (!Array.isArray(parts) || parts.length !== 3 || JSON.stringify(parts) !== key) return null;
   const [asset, title, mediaType] = parts as unknown[];
   if (typeof asset !== 'string' || !/^[A-Za-z0-9_-]{1,100}(?:\.[A-Za-z0-9]{1,5})?$/.test(asset) ||
     !string(title, 1, 600) || normaliseTitle(title) !== title.normalize('NFC') ||
-    (mediaType !== 'movie' && mediaType !== 'series')) return false;
+    (mediaType !== 'movie' && mediaType !== 'series')) return null;
+  return [asset, title, mediaType];
+}
+
+function validHotstarPosterRatingRequest(poster: unknown): poster is HotstarPosterRatingRequest {
+  if (!isObject(poster) || !only(poster, ['key', 'title', 'mediaType']) || !string(poster.title, 1, 300)) return false;
+  const parts = posterKeyParts(poster.key);
+  return !!parts && parts[1] === normaliseTitle(poster.title) && parts[2] === poster.mediaType;
+}
+
+export function validHotstarPosterEntry(entry: unknown): entry is HotstarPosterEntry {
+  if (!isObject(entry) || !only(entry, ['key', 'value'])) return false;
+  const parts = posterKeyParts(entry.key);
+  if (!parts) return false;
   if (entry.value === null) return true;
 
   const binding = entry.value;
   if (!isObject(binding) || !only(binding, ['work', 'metadata']) || !isObject(binding.work) ||
     !only(binding.work, ['pagePath', 'titleId', 'mediaType'])) return false;
   const path = hotstarObservationPath(binding.work.pagePath);
-  if (!path || path.titleId !== binding.work.titleId || path.mediaType !== binding.work.mediaType || path.mediaType !== mediaType) return false;
+  if (!path || path.titleId !== binding.work.titleId || path.mediaType !== binding.work.mediaType || path.mediaType !== parts[2]) return false;
   const metadata = binding.metadata;
   if (metadata === null) return true;
   if (!isObject(metadata) || !only(metadata, ['year', 'seasonCount'])) return false;
   if (metadata.year === undefined) return metadata.seasonCount === undefined;
   if (!releaseYear(metadata.year)) return false;
-  if (mediaType === 'movie') return metadata.seasonCount === undefined;
+  if (parts[2] === 'movie') return metadata.seasonCount === undefined;
   return Number.isInteger(metadata.seasonCount) && Number(metadata.seasonCount) >= 1 && Number(metadata.seasonCount) <= 200;
 }
 
 const fields: Record<Request['type'], string[]> = {
-  RELEASE_DEMAND: ['ref'],
+  RELEASE_DEMAND: ['ref', 'posterKey'],
   GET_PUBLIC_STATUS: [], OPEN_SETTINGS: [], LOOKUP: ['observation'], REFRESH: ['observation', 'revision'],
   OPEN_CORRECTION: ['observation', 'revision'], GET_STATUS: [], UPDATE_SETTINGS: ['settings'],
   SET_API_KEY: ['key'], TEST_API_KEY: [], REMOVE_API_KEY: [], GET_CONTEXT: ['contextId'],
@@ -70,19 +83,21 @@ const fields: Record<Request['type'], string[]> = {
   RESET_MATCHES: [], CLEAR_RATING_CACHE: [], EXPORT_DIAGNOSTICS: [], EXPORT_MATCHING_LOG: [], CLEAR_MATCHING_LOG: [],
   GET_MARKS: ['refs'], SET_MARK: ['observation', 'watched', 'plan', 'revision', 'epoch'], UNDO_MARK: ['ref', 'operationId', 'revision', 'epoch'],
   LIST_MARKS: [], RESET_MARKS: [], EXPORT_MARKS: [], OPEN_TITLES: [],
-  GET_HOTSTAR_POSTERS: [], SAVE_HOTSTAR_POSTERS: ['entries']
+  GET_HOTSTAR_POSTERS: [], SAVE_HOTSTAR_POSTERS: ['entries'], LOOKUP_HOTSTAR_POSTER_RATING: ['poster']
 };
 export function validateRequest(raw: unknown): Request {
   if (!isObject(raw) || JSON.stringify(raw).length > (raw.type === 'SAVE_HOTSTAR_POSTERS' ? 30000 : 16000) || raw.protocol !== PROTOCOL_VERSION ||
     typeof raw.type !== 'string' || !Object.hasOwn(fields, raw.type)) throw new Error('Unsupported extension message.');
   const type = raw.type as Request['type'];
-  if (!only(raw, ['protocol', 'type', ...fields[type]]) || !fields[type].every(k => (type === 'RELEASE_DEMAND' && k === 'ref') || (type === 'PREVIEW_MATCH' && k === 'searchId') || (type === 'SET_MARK' && ['watched','plan'].includes(k)) || Object.hasOwn(raw, k))) throw new Error('Invalid extension message fields.');
+  if (!only(raw, ['protocol', 'type', ...fields[type]]) || !fields[type].every(k => type === 'RELEASE_DEMAND' || (type === 'PREVIEW_MATCH' && k === 'searchId') || (type === 'SET_MARK' && ['watched','plan'].includes(k)) || Object.hasOwn(raw, k))) throw new Error('Invalid extension message fields.');
   if ('observation' in raw && !validObservation(raw.observation)) throw new Error('Invalid title observation.');
   if ('ref' in raw && !validRef(raw.ref)) throw new Error('Invalid platform title.');
+  if (type === 'RELEASE_DEMAND' && 'posterKey' in raw && ('ref' in raw || !posterKeyParts(raw.posterKey))) throw new Error('Invalid Hotstar poster demand.');
   if ('revision' in raw && !revision(raw.revision)) throw new Error('Invalid mapping revision.');
   if ('epoch' in raw && !revision(raw.epoch)) throw new Error('Invalid marks generation.');
   if (type === 'SAVE_HOTSTAR_POSTERS' && (!Array.isArray(raw.entries) || raw.entries.length < 1 ||
     raw.entries.length > HOTSTAR_POSTER_BATCH_SIZE || !raw.entries.every(validHotstarPosterEntry))) throw new Error('Invalid Hotstar poster evidence.');
+  if (type === 'LOOKUP_HOTSTAR_POSTER_RATING' && !validHotstarPosterRatingRequest(raw.poster)) throw new Error('Invalid Hotstar poster evidence.');
   if (type === 'GET_MARKS' && (!Array.isArray(raw.refs) || raw.refs.length > 100 || !raw.refs.every(validRef))) throw new Error('Invalid marks request.');
   if (type === 'SET_MARK' && ((!('watched' in raw) && !('plan' in raw)) || ('watched' in raw && typeof raw.watched !== 'boolean') || ('plan' in raw && (typeof raw.plan !== 'string' || !['none','want','pass'].includes(raw.plan))))) throw new Error('Invalid title mark.');
   if (type === 'UNDO_MARK' && !string(raw.operationId, 36, 36)) throw new Error('Invalid undo operation.');
@@ -135,7 +150,8 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
 
   const url = new URL(sender.url!);
   const platformId = contentPlatform(url)!;
-  if (platformId !== 'hotstar' && (request.type === 'GET_HOTSTAR_POSTERS' || request.type === 'SAVE_HOTSTAR_POSTERS'))
+  if (platformId !== 'hotstar' && (request.type === 'GET_HOTSTAR_POSTERS' || request.type === 'SAVE_HOTSTAR_POSTERS' ||
+    request.type === 'LOOKUP_HOTSTAR_POSTER_RATING' || request.type === 'RELEASE_DEMAND' && request.posterKey !== undefined))
     throw new Error('This page cannot access Hotstar poster evidence.');
   const refs = 'observation' in request ? [request.observation.ref] : 'refs' in request ? request.refs :
     'ref' in request && request.ref ? [request.ref] : [];
@@ -149,7 +165,7 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
 }
 export function authoriseCommand(role: SenderRole, type: Request['type']): void {
   const allowed: Record<SenderRole, Request['type'][]> = {
-    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES', 'GET_HOTSTAR_POSTERS', 'SAVE_HOTSTAR_POSTERS'],
+    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES', 'GET_HOTSTAR_POSTERS', 'SAVE_HOTSTAR_POSTERS', 'LOOKUP_HOTSTAR_POSTER_RATING'],
     popup: ['GET_STATUS', 'UPDATE_SETTINGS', 'OPEN_SETTINGS','OPEN_TITLES'],
     options: ['GET_STATUS', 'UPDATE_SETTINGS', 'SET_API_KEY', 'TEST_API_KEY', 'REMOVE_API_KEY', 'LIST_MATCHES', 'REMOVE_MATCH', 'RESET_MATCHES', 'CLEAR_RATING_CACHE', 'EXPORT_DIAGNOSTICS', 'EXPORT_MATCHING_LOG', 'CLEAR_MATCHING_LOG', 'OPEN_TITLES','LIST_MARKS','RESET_MARKS','EXPORT_MARKS'],
     correction: ['GET_STATUS', 'GET_CONTEXT', 'SEARCH_MATCHES', 'PREVIEW_MATCH', 'CONFIRM_MATCH', 'OPEN_SETTINGS'],

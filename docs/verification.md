@@ -1,5 +1,13 @@
 # Stream Companion v1 verification
 
+## Hotstar unlinked posters (0.6.2)
+
+On the installed 0.6.1 build, the live Explore Peacock Home row showed Suits, Fast X, The Fall Guy, and Fifty Shades of Grey after their lookups settled. Obsession, Oppenheimer, Michael, and Five Nights at Freddy's stayed blank. Those collapsed posters exposed a scoped title label, explicit movie/show type, and public artwork, without a whole-work link or release year. The old adapter did not start a rating lookup for them.
+
+0.6.2 can request a provisional rating after an eligible poster stays in view. It requires an exact title and type, a complete bounded candidate set, one IMDb ID, and agreement from that IMDb detail response. The outlined star distinguishes this result from a rating attached to a verified Hotstar work. The provisional path cannot create watch marks or title corrections, and an observed Hotstar link takes precedence. It uses the existing OMDb request budget and separate expiring lookup evidence, with no new permissions.
+
+Typecheck, build, 642 unit tests and all 34 browser scenarios passed. The real MV3 fixture with synthetic provider data verified that an unseen Home poster and its duplicate get a rating before hover with one search and one detail call; a same-title remake pair stays blank; the cache survives a reload; and recycled artwork drops the old badge.
+
 ## JioHotstar and primary feature switches (0.6.0–0.6.1)
 
 Disposable-profile Hotstar MV3 cases cover independent Settings and popup switches, marks without a key, Save and Undo, canonical library links, same-number title isolation across platforms, cached detail ratings and playback teardown. They also cover the series ID on Continue Watching and explicit native IMDb scores without provider calls. The isolated settings smoke check included a 320px viewport. The ZIP contains 18 files, `storage` as the only ordinary permission, and the JioHotstar India content-script scope.

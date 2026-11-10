@@ -10,6 +10,7 @@ import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
 import { MarksService, MarkError } from './marks';
 import { HotstarPosterMemory } from './hotstar-posters';
+import { clearRatingCache, HotstarPosterRatings } from './hotstar-poster-ratings';
 import { MatchingLog, candidateRecord, type AutomaticDecision, type MatchEvent, type SearchEvidence, type SearchSelection } from './matching-log';
 
 const repo = new Repository();
@@ -17,6 +18,7 @@ const config = new Configuration();
 const marks = new MarksService(repo);
 const hotstarPosters = new HotstarPosterMemory();
 const scheduler = new Scheduler(repo, () => config.credential(), fetch, async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false }; });
+const hotstarPosterRatings = new HotstarPosterRatings(repo, scheduler, config);
 const matchingEligibility = async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false && s.automaticMatching !== false }; };
 const directIds = new WikidataResolver(repo, matchingEligibility);
 const metadata = new NetflixMetadataResolver(repo, matchingEligibility);
@@ -49,17 +51,17 @@ function mutateClients(work: (clients: Record<string, Client>) => void): Promise
   clientMutations = result.catch(() => undefined); // Each caller observes its own failure.
   return result;
 }
-function liveDemand(sender: chrome.runtime.MessageSender, ref: PlatformTitleRef): () => boolean {
+const posterDemandKey = (key: string) => JSON.stringify(['hotstar-poster', key]);
+function liveDemand(sender: chrome.runtime.MessageSender, key: string): () => boolean {
   const documentId = sender.documentId!;
   const entries = demands.get(documentId) ?? new Map(); demands.set(documentId, entries);
-  const key = titleKey(ref);
   const token = entries.get(key) ?? { active: true, at: Date.now() };
   token.active = true; token.at = Date.now(); entries.set(key, token);
   return () => token.active && Date.now() - token.at < 30000;
 }
-function releaseDemand(documentId: string, ref?: PlatformTitleRef): void {
+function releaseDemand(documentId: string, key?: string): void {
   const entries = demands.get(documentId); if (!entries) return;
-  if (ref) { const token = entries.get(titleKey(ref)); if (token) token.active = false; entries.delete(titleKey(ref)); }
+  if (key) { const token = entries.get(key); if (token) token.active = false; entries.delete(key); }
   else { for (const token of entries.values()) token.active = false; demands.delete(documentId); }
 }
 
@@ -196,6 +198,8 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
     switch (request.type) {
       case 'GET_HOTSTAR_POSTERS': return await hotstarPosters.get();
       case 'SAVE_HOTSTAR_POSTERS': return await hotstarPosters.save(request.entries);
+      case 'LOOKUP_HOTSTAR_POSTER_RATING':
+        return await hotstarPosterRatings.lookup(request.poster, liveDemand(sender, posterDemandKey(request.poster.key)));
       case 'GET_PUBLIC_STATUS': return await publicStatus();
       case 'GET_STATUS': return await status();
       case 'GET_MARKS': return await marks.get(request.refs);
@@ -214,8 +218,11 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
       case 'EXPORT_MARKS': return { product: 'Stream Companion', format: 1, generatedAt: new Date().toISOString(), ...(await marks.export()) };
       case 'OPEN_TITLES': await chrome.tabs.create({ url: chrome.runtime.getURL('titles.html') }); return null;
       case 'OPEN_SETTINGS': await chrome.runtime.openOptionsPage(); return null;
-      case 'LOOKUP': return await resolver.lookup(request.observation, false, undefined, liveDemand(sender, request.observation.ref));
-      case 'RELEASE_DEMAND': releaseDemand(sender.documentId!, request.ref); return null;
+      case 'LOOKUP': return await resolver.lookup(request.observation, false, undefined, liveDemand(sender, titleKey(request.observation.ref)));
+      case 'RELEASE_DEMAND': {
+        const key = request.posterKey ? posterDemandKey(request.posterKey) : request.ref ? titleKey(request.ref) : undefined;
+        releaseDemand(sender.documentId!, key); return null;
+      }
       case 'REFRESH': return await resolver.lookup(request.observation, true, request.revision);
       case 'UPDATE_SETTINGS': await config.update(request.settings); matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'SET_API_KEY': await config.setKey(request.key.trim()); await broadcast({ type: 'SC_INVALIDATE' }); return null;
@@ -320,7 +327,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         }, true);
         await broadcast({ type: 'SC_INVALIDATE' }); return null;
       }
-      case 'CLEAR_RATING_CACHE': await repo.clear('ratings'); await broadcast({ type: 'SC_INVALIDATE' }); return null;
+      case 'CLEAR_RATING_CACHE': await clearRatingCache(repo); await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'CLEAR_MATCHING_LOG': {
         await matchingLog.clear(); return null;
       }

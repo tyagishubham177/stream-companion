@@ -75,8 +75,10 @@ export interface HotstarPosterBinding {
 }
 export interface HotstarPosterEntry { key: string; value: HotstarPosterBinding | null }
 export interface HotstarPosterSnapshot { entries: HotstarPosterEntry[] }
+export interface HotstarPosterRatingRequest { key: string; title: string; mediaType: 'movie' | 'series' }
+export interface HotstarPosterRatingResult { record: RatingRecord | null; expiresAt: number; retryable?: boolean }
 export type Request =
-  | { type: 'RELEASE_DEMAND'; ref?: PlatformTitleRef }
+  | { type: 'RELEASE_DEMAND'; ref?: PlatformTitleRef; posterKey?: string }
   | { type: 'OPEN_SETTINGS' }
   | { type: 'GET_PUBLIC_STATUS' }
   | { type: 'LOOKUP'; observation: TitleObservation }
@@ -106,6 +108,7 @@ export type Request =
   | { type: 'EXPORT_MARKS' }
   | { type: 'GET_HOTSTAR_POSTERS' }
   | { type: 'SAVE_HOTSTAR_POSTERS'; entries: HotstarPosterEntry[] }
+  | { type: 'LOOKUP_HOTSTAR_POSTER_RATING'; poster: HotstarPosterRatingRequest }
   | { type: 'OPEN_TITLES' };
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
 export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef };

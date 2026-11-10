@@ -1,4 +1,4 @@
-import type { TitleObservation } from '../shared/contracts';
+import type { HotstarPosterRatingRequest, TitleObservation } from '../shared/contracts';
 
 /** A platform owns all selectors, identity extraction and supported surfaces. */
 export interface StreamingPlatformAdapter {
@@ -6,6 +6,8 @@ export interface StreamingPlatformAdapter {
   readonly version: number;
   supports(url: URL): boolean;
   findTiles(root: ParentNode): Iterable<HTMLElement>;
+  findPosterCandidates?(root: ParentNode): Iterable<HTMLElement>;
+  observePoster?(tile: HTMLElement): HotstarPosterRatingRequest | null;
   badgeContainer(tile: HTMLElement): HTMLElement | null;
   badgeCorner?(tile: HTMLElement): 'top-left' | 'top-right' | undefined;
   expandedOwner?(tile: HTMLElement): HTMLElement | undefined;
