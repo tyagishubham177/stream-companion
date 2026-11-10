@@ -7,6 +7,7 @@ Versions below are matched to their extension manifests. Historical tags preserv
 - Put independent IMDb ratings and Mark as watched switches in the popup and at the top of Settings.
 - Bring ratings, watched/plan marks and Undo to supported JioHotstar India cards, expanded previews and title details.
 - Use JioHotstar IDs from Wikidata, reliable film release years and public title-page credits to resolve ratings. Keep series identity separate from episode links and season years.
+- Support the TV catalogue, use Hotstar’s displayed IMDb scores, and corroborate series through a verified year and season count. Retain controls on posters whose own expanded preview establishes their identity.
 - Keep marks and corrections separate by platform, with canonical title links in Your titles.
 
 ## 0.5.0 — Your marks, modular controls and catalogue coverage

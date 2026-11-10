@@ -9,6 +9,7 @@ export interface StreamingPlatformAdapter {
   badgeContainer(tile: HTMLElement): HTMLElement | null;
   badgeCorner?(tile: HTMLElement): 'top-left' | 'top-right' | undefined;
   expandedOwner?(tile: HTMLElement): HTMLElement | undefined;
+  visibleImdb?(tile: HTMLElement): number | undefined;
   artworkElement?(tile: HTMLElement): HTMLElement | null;
   observeTitle(tile: HTMLElement): TitleObservation | null;
   visibleDetails(observations: readonly TitleObservation[]): TitleObservation | null;

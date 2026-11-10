@@ -1,8 +1,8 @@
 import { acquirePositioning } from './positioning';
 import { claimPanel, releasePanel } from './panel-coordinator';
 import { normaliseTitle } from '../shared/identity';
-import type { LookupState, TitleObservation } from '../shared/contracts';
-import { badgeText, stateDescription } from '../features/ratings/presentation';
+import type { TitleObservation } from '../shared/contracts';
+import { badgeText, stateDescription, type BadgeState } from '../features/ratings/presentation';
 import { DAY_MS, ratingFreshFor } from '../shared/freshness';
 import { badgeStyles, overlayStyles } from './styles';
 
@@ -15,7 +15,7 @@ export interface BadgeMount {
 
 export interface DetailsModel {
   observation: TitleObservation;
-  state: LookupState | null;
+  state: BadgeState | null;
   button: HTMLButtonElement;
   fallbackFocus(): HTMLElement | null;
   refresh(): Promise<void>;
@@ -84,10 +84,11 @@ export class Overlay {
     } };
   }
 
-  updateBadge(button: HTMLButtonElement, observation: TitleObservation, state: LookupState | null): void {
+  updateBadge(button: HTMLButtonElement, observation: TitleObservation, state: BadgeState | null): void {
     button.textContent = badgeText(state);
-    button.dataset.rated = String(state?.kind === 'rated');
-    const rating = state?.kind === 'rated' ? ` ${state.record.score?.toFixed(1)} out of 10.` : '';
+    const score = state?.kind === 'hotstar_score' ? state.score : state?.kind === 'rated' ? state.record.score : null;
+    button.dataset.rated = String(score !== null);
+    const rating = score === null ? '' : ` ${score.toFixed(1)} out of 10.`;
     button.setAttribute('aria-label', `${observation.displayTitle}: ${stateDescription(state)}.${rating} Open details`);
     button.title = `${observation.displayTitle} · ${stateDescription(state)}`;
     if (this.model?.button === button) {
@@ -122,6 +123,11 @@ export class Overlay {
     const record = state?.kind === 'rated' || state?.kind === 'unrated' ? state.record : null;
     const heading = element('h2', record?.title ?? model.observation.displayTitle); heading.id = 'sc-title';
     panel.append(heading);
+    if (state?.kind === 'hotstar_score') {
+      const score = element('div', state.score.toFixed(1), 'score');
+      score.append(element('small', ' / 10'));
+      panel.append(score);
+    }
     if (record) {
       panel.append(element('p', `${record.year} · ${record.mediaType === 'series' ? 'Series' : 'Movie'}`, 'meta'));
       const score = element('div', record.score === null ? 'NR' : record.score.toFixed(1), 'score');
@@ -141,7 +147,8 @@ export class Overlay {
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'hotstar')
         panel.append(element('p', state.matchBasis === 'credits'
           ? 'Matched using the title and credits shown by JioHotstar.'
-          : 'Matched using JioHotstar’s film title and release year.', 'meta'));
+          : state.matchBasis === 'seasons' ? 'Matched using JioHotstar’s title, displayed year and season count.'
+            : 'Matched using JioHotstar’s film title and release year.', 'meta'));
       panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
     }
@@ -163,7 +170,7 @@ export class Overlay {
       actions.append(button);
     };
     if (state?.kind === 'setup_required') act('Open settings', model.settings, true);
-    else if (state) {
+    else if (state && state.kind !== 'hotstar_score') {
       act(record ? 'Wrong match?' : 'Find a match', model.correct, !record);
       if (record) {
         const imdb = element('a', 'Open IMDb');

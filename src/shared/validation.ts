@@ -13,7 +13,7 @@ export function validRef(v: unknown): v is { platformId: ContentPlatform; titleI
     (v.platformId === 'netflix' || v.platformId === 'hotstar') && typeof v.titleId === 'string' && /^\d{1,12}$/.test(v.titleId);
 }
 export function validObservation(v: unknown): v is TitleObservation {
-  if (!isObject(v) || !only(v, ['ref', 'displayTitle', 'mediaType', 'year', 'aliases', 'adapterVersion', 'pagePath', 'credits']) || !validRef(v.ref) ||
+  if (!isObject(v) || !only(v, ['ref', 'displayTitle', 'mediaType', 'year', 'seasonCount', 'aliases', 'adapterVersion', 'pagePath', 'credits']) || !validRef(v.ref) ||
     !string(v.displayTitle, 1, 300) || typeof v.mediaType !== 'string' || !['movie', 'series', 'unknown'].includes(v.mediaType) ||
     !Number.isSafeInteger(v.adapterVersion) || Number(v.adapterVersion) < 1 || Number(v.adapterVersion) > 100000) return false;
   if (v.aliases !== undefined && (!Array.isArray(v.aliases) || v.aliases.length > 5 || !v.aliases.every(a => string(a, 1, 300)))) return false;
@@ -22,8 +22,12 @@ export function validObservation(v: unknown): v is TitleObservation {
     (v.ref.platformId !== 'hotstar' || !path || path.titleId !== v.ref.titleId || path.mediaType !== v.mediaType)) return false;
   if (v.credits !== undefined && (!path || !isObject(v.credits) || !only(v.credits, ['directors', 'actors']) ||
     !Array.isArray(v.credits.actors) || v.credits.actors.length > 12 || !validateFilmCredits(v.credits))) return false;
-  if (v.ref.platformId === 'hotstar' && v.year !== undefined &&
-    (v.mediaType !== 'movie' || !isObject(v.year) || v.year.meaning !== 'movie_release')) return false;
+  if (v.seasonCount !== undefined && (v.ref.platformId !== 'hotstar' || v.mediaType !== 'series' ||
+    !Number.isSafeInteger(v.seasonCount) || Number(v.seasonCount) < 1 || Number(v.seasonCount) > 200)) return false;
+  if (v.ref.platformId === 'hotstar' && v.year !== undefined) {
+    const meaning = v.mediaType === 'movie' ? 'movie_release' : 'season_release';
+    if (!isObject(v.year) || v.year.meaning !== meaning || (v.mediaType === 'series' && v.seasonCount === undefined)) return false;
+  }
   return v.year === undefined || (isObject(v.year) && only(v.year, ['value', 'meaning']) &&
     Number.isInteger(v.year.value) && Number(v.year.value) >= 1888 && Number(v.year.value) <= new Date().getUTCFullYear() + 5 &&
     typeof v.year.meaning === 'string' && ['movie_release', 'series_start', 'season_release', 'unknown'].includes(v.year.meaning));

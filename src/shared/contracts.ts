@@ -15,6 +15,7 @@ export interface TitleObservation {
   displayTitle: string;
   mediaType: MediaType;
   year?: { value: number; meaning: YearMeaning };
+  seasonCount?: number;
   aliases?: string[];
   pagePath?: string;
   credits?: FilmCredits;
@@ -25,6 +26,7 @@ export interface RatingRecord {
   source: 'imdb'; provider: 'omdb';
   title: string; year: string; mediaType: 'movie' | 'series';
   score: number | null; scale: 10; votes: number | null; fetchedAt: number;
+  seasonCount?: number;
   credits?: FilmCredits;
 }
 export interface Candidate { id: string; title: string; year: string; mediaType: 'movie' | 'series' }
@@ -34,12 +36,12 @@ export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
   evidence: TitleObservation; resolverVersion: number; rejected: string[];
-  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: PlatformMetadataSource; checkedAt: number; matchBasis?: 'credits' };
+  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: PlatformMetadataSource; checkedAt: number; matchBasis?: 'credits' | 'seasons' };
 }
 export type DeferredReason = 'budget' | 'quota' | 'offline' | 'provider' | 'key' | 'storage' | 'busy' | 'clock';
 export type LookupState =
-  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' }
-  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' }
+  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
+  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
   | { kind: 'needs_match'; reason: 'insufficient_evidence' | 'ambiguous' | 'contradiction' | 'not_found' }
   | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string }
   | { kind: 'setup_required' }

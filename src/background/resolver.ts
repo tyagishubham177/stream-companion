@@ -13,6 +13,23 @@ import { candidateRecord, type MatchingLog, type MatchStep } from './matching-lo
 interface Resolution { expiresAt: number; state?: LookupState; attempts: number; trace?: MatchStep[]; traceEpoch?: number }
 interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
 interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean, requireCredits?: boolean): Promise<NetflixMetadataResult> }
+type MatchBasis = 'credits' | 'seasons';
+
+function catalogueSeasonEvidence(observation: TitleObservation): { year: number; count: number } | undefined {
+  const count = observation.seasonCount;
+  if (observation.ref.platformId !== 'hotstar' || observation.mediaType !== 'series' || observation.year?.meaning !== 'season_release' ||
+    count === undefined || !Number.isInteger(count) || count < 1 || count > 200) return;
+  return { year: observation.year.value, count };
+}
+
+function seriesYears(year: string): { start: number; end?: number } | undefined {
+  const match = /^(\d{4})(?:[–-](\d{4})?)?$/.exec(year);
+  if (!match) return;
+  const start = Number(match[1]);
+  const end = match[2] === undefined ? undefined : Number(match[2]);
+  if (start >= 1888 && (end === undefined || end >= start)) return { start, end };
+}
+
 export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
@@ -124,6 +141,7 @@ export class Resolver {
     if (!(await this.config.credential())) return { kind: 'setup_required' };
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     let evidence = o;
+    let seasonEvidence = catalogueSeasonEvidence(o);
     let metadataMatch: Extract<NetflixMetadataResult, { kind: 'matched' }> | undefined;
     // Hotstar publishes credits in the currently open title page. Unlike the
     // Netflix fallback this uses the bound DOM evidence, with no source fetch.
@@ -135,6 +153,7 @@ export class Resolver {
     }
     if (this.directIds) {
       const direct = directSnapshot ?? await this.directIds.resolve(o.ref, demand);
+      if (direct.kind !== 'missing') seasonEvidence = undefined;
       steps.push({ stage: 'wikidata', outcome: direct.kind === 'deferred' ? `deferred:${direct.reason}` : direct.kind });
       if (direct.kind === 'matched') {
         if (mapping?.rejected.includes(direct.imdbId)) return { kind: 'needs_match', reason: 'contradiction' };
@@ -187,13 +206,13 @@ export class Resolver {
           steps.push({ stage: 'enriched_evidence', outcome: result.mediaType === 'movie' ? 'movie_release_verified' : 'series_type_and_cast_verified', evidence });
         }
       }
-      if (!hasStrongEvidence(evidence) && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
+      if (!hasStrongEvidence(evidence) && !seasonEvidence && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
         steps.push({ stage: 'evidence', outcome: 'missing_usable_year_or_type' });
         if (direct.kind === 'deferred') return { kind: 'deferred', reason: direct.reason, message: direct.message, retryAfter: direct.retryAfter };
         return { kind: 'needs_match', reason: direct.kind === 'ambiguous' ? 'ambiguous' : 'not_found' };
       }
     }
-    if (!hasStrongEvidence(evidence) && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
+    if (!hasStrongEvidence(evidence) && !seasonEvidence && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
       steps.push({ stage: 'evidence', outcome: 'missing_usable_year_or_type' });
       return { kind: 'needs_match', reason: 'insufficient_evidence' };
     }
@@ -247,19 +266,19 @@ export class Resolver {
         await automaticRequest({ i: id, plot: 'short' }, raw => parseDetail(raw, id, Date.now()));
       await this.repo.put('ratings', ratingKey(record.subject), record); return record;
     };
-    const accept = async (record: RatingRecord, creditMatch: boolean): Promise<LookupState> => {
+    const accept = async (record: RatingRecord, matchBasis?: MatchBasis): Promise<LookupState> => {
       if (mapping?.rejected.includes(record.subject.id) || contradicts(o, record)) return await save({ kind: 'needs_match', reason: 'contradiction' });
-      if (creditMatch) evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
-      const source = metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
+      if (matchBasis === 'credits') evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
+      const source = matchBasis === 'seasons' || metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
       const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(record.subject.id)) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
           evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
-          ...(metadataMatch && source ? { provenance: { source, checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
+          ...(source ? { provenance: { source, checkedAt: metadataMatch?.checkedAt ?? Date.now(), ...(matchBasis ? { matchBasis } : {}) } } : {}) } satisfies Mapping);
         return true;
       });
-      if (accepted) return stateFromRecord(record, 'automatic', source, creditMatch ? 'credits' : undefined);
+      if (accepted) return stateFromRecord(record, 'automatic', source, matchBasis);
       const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
       return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
         ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
@@ -280,7 +299,37 @@ export class Resolver {
           steps.push({ stage: 'series_cast_detail', outcome: supported ? 'supported_three_actors' : 'contradiction', candidate: candidateRecord(record) });
           if (supported) verified.push(record);
         }
-        return verified.length === 1 ? await accept(verified[0], true) : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
+        return verified.length === 1 ? await accept(verified[0], 'credits') : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
+      }
+      if (seasonEvidence) {
+        const { year, count } = seasonEvidence;
+        const title = normaliseTitle(evidence.displayTitle);
+        const candidates = result.candidates.flatMap(candidate => {
+          if (candidate.mediaType !== 'series' || normaliseTitle(candidate.title) !== title || mapping?.rejected.includes(candidate.id)) return [];
+          const years = seriesYears(candidate.year);
+          return years && (years.start === year || years.end === year) ? [{ candidate, years }] : [];
+        });
+        if (!candidates.length || candidates.length > 2) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
+        const verified: RatingRecord[] = [];
+        let unknownCount = false;
+        for (const { candidate, years } of candidates) {
+          const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: candidate.id }));
+          const record = cached && ratingCacheState(cached) === 'fresh' && cached.seasonCount !== undefined ? cached :
+            await automaticRequest({ i: candidate.id, plot: 'short' }, raw => parseDetail(raw, candidate.id, Date.now()));
+          await this.repo.put('ratings', ratingKey(record.subject), record);
+          const detailYears = seriesYears(record.year);
+          const supported = record.mediaType === 'series' && normaliseTitle(record.title) === title && detailYears &&
+            detailYears.start === years.start && (years.end === undefined || detailYears.end === undefined || detailYears.end === years.end) &&
+            (detailYears.start === year || detailYears.end === year);
+          if (supported && record.seasonCount === undefined) unknownCount = true;
+          const matches = supported && record.seasonCount === count;
+          steps.push({ stage: 'series_season_detail', outcome: matches ? 'supported' : 'unverified', candidate: candidateRecord(record),
+            checks: [supported ? 'catalogue_year_endpoint_supported' : 'series_identity_mismatch',
+              record.seasonCount === undefined ? 'season_count_unavailable' : record.seasonCount === count ? 'season_count_supported' : 'season_count_mismatch'] });
+          if (matches) verified.push(record);
+        }
+        if (verified.length === 1 && !unknownCount) return await accept(verified[0], 'seasons');
+        return await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
       }
       let candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
       if (candidates.length === 2 && metadataMatch && !/[()]/.test(metadataMatch.title) && corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
@@ -291,7 +340,7 @@ export class Resolver {
           steps.push({ stage: 'ambiguous_movie_credits', outcome: supported ? 'supported' : 'contradiction', candidate: candidateRecord(record) });
           if (supported) verified.push(record);
         }
-        return verified.length === 1 ? await accept(verified[0], true) : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
+        return verified.length === 1 ? await accept(verified[0], 'credits') : await save({ kind: 'needs_match', reason: verified.length ? 'ambiguous' : 'contradiction' });
       }
       let creditMatch = false;
       const alias = metadataMatch ? filmSearchAlias(metadataMatch.title) : null;
@@ -304,7 +353,7 @@ export class Resolver {
         const supported = record.mediaType === 'movie' && record.year === String(usableYear(evidence)) &&
           plainTranslationAlias(evidence.displayTitle, record.title) && corroboratesEdition(metadataMatch.credits, record.credits);
         steps.push({ stage: 'title_query_credits', outcome: supported ? 'supported' : 'contradiction', candidate: candidateRecord(record) });
-        return supported ? await accept(record, true) : await save({ kind: 'needs_match', reason: 'contradiction' });
+        return supported ? await accept(record, 'credits') : await save({ kind: 'needs_match', reason: 'contradiction' });
       }
       if (candidates.length === 0 && metadataMatch && this.metadata) {
         candidates = result.candidates.filter(editionCandidate);
@@ -341,7 +390,7 @@ export class Resolver {
       steps.push({ stage: creditMatch ? 'edition_detail_and_credits' : 'candidate_detail', outcome: verified ? 'supported' : 'contradiction',
         candidate: candidateRecord(record), checks: creditMatch ? [corroboratesEdition(metadataMatch?.credits, record.credits) ? 'credits_supported' : 'credits_missing_or_conflicting'] : candidateChecks(evidence, candidateRecord(record), mapping?.rejected ?? []) });
       if (!verified) return await save({ kind: 'needs_match', reason: 'contradiction' });
-      return await accept(record, creditMatch);
+      return await accept(record, creditMatch ? 'credits' : undefined);
     } catch (error) {
       if (error instanceof ProviderError && error.kind === 'not_found') return await save({ kind: 'needs_match', reason: 'not_found' });
       return cachedOrDeferred(undefined, 'automatic', error);
@@ -358,14 +407,14 @@ export function candidateChecks(evidence: TitleObservation, candidate: Candidate
   else if (Number(candidate.year.slice(0, 4)) !== usableYear(evidence)) checks.push('year_mismatch');
   return checks.length ? checks : ['supported'];
 }
-export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | PlatformMetadataSource, matchBasis?: 'credits'): LookupState {
+export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | PlatformMetadataSource, matchBasis?: MatchBasis): LookupState {
   const source = { ...(identitySource ? { identitySource } : {}), ...(matchBasis ? { matchBasis } : {}) };
   if (record.score === null) return { kind: 'unrated', record, ...source };
   return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...source };
 }
 function stateFromMapping(record: RatingRecord, mapping: Mapping): LookupState {
   return stateFromRecord(record, mapping.method, mapping.provenance?.source,
-    mapping.provenance?.source === 'netflix' ? mapping.provenance.matchBasis : undefined);
+    mapping.provenance?.source !== 'wikidata' ? mapping.provenance?.matchBasis : undefined);
 }
 function cachedOrSetup(cache: RatingRecord | undefined, method: 'manual' | 'automatic'): LookupState {
   if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);

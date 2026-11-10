@@ -12,9 +12,21 @@ const IMAGE = '[data-testid="hs-image"] img';
 const TITLE_CUTOUT = '[data-testid="card-hover-title-cutout"]';
 const PREVIEW = '[data-testid="card-hover-container"]';
 const SEARCH_HERO = '[data-testid="search-hero"]';
-const VERSION = 1;
+const DEFAULT = '[data-testid="tray-card-default"]';
+const ACTION = '[data-testid="action"][aria-label]';
+const TILES = `${LINK},${HOVER},${DETAIL},${FEATURED},${DEFAULT}`;
+const METADATA_SCOPE = `${TILES},${SEARCH_HERO}`;
+const VERSION = 2;
+const MAX_LEARNED_POSTERS = 512;
 
 type Work = NonNullable<ReturnType<typeof hotstarTitlePath>>;
+interface WorkLabel { title: string; mediaType: Work['mediaType'] }
+interface PosterIdentity extends WorkLabel { key: string; image: HTMLImageElement }
+interface ShownMetadata { year?: number; seasonCount?: number }
+interface LearnedPoster { work: Work; metadata: ShownMetadata | null }
+const learnedPosters = new Map<string, LearnedPoster | null>();
+let coveredCards = new WeakMap<HTMLElement, HTMLElement>();
+
 const text = (value: string | null | undefined): string | undefined => {
   const clean = value?.replace(/\s+/gu, ' ').trim();
   return clean && clean.length <= 300 && !/[\u0000-\u001f]/.test(clean) ? clean : undefined;
@@ -39,25 +51,156 @@ function yearValue(value: unknown): number | undefined {
   if (year >= 1888 && year <= new Date().getUTCFullYear() + 5) return year;
 }
 
-function movieYear(tile: HTMLElement): number | undefined {
-  const years = new Set([...tile.querySelectorAll('[data-testid="textTag"]')]
-    .map(e => yearValue(e.textContent)).filter((year): year is number => year !== undefined));
-  return years.size === 1 ? [...years][0] : undefined;
+function rendered(element: HTMLElement): boolean {
+  return element.isConnected && !element.closest('[hidden],[inert],[aria-hidden="true"]') &&
+    element.getClientRects().length > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+}
+
+function metadataTags(tile: HTMLElement): string[] {
+  return [...tile.querySelectorAll<HTMLElement>('span[data-testid="textTag"]')].flatMap(tag => {
+    const scope = tag.closest(METADATA_SCOPE);
+    if (!(scope === tile || (scope?.matches(SEARCH_HERO) && scope.closest(TILES) === tile)) || !rendered(tag)) return [];
+    const label = text(tag.textContent);
+    return label ? [label] : [];
+  });
+}
+
+function uniqueNumber(values: Array<number | undefined>): number | undefined {
+  const known = new Set(values.filter((value): value is number => value !== undefined));
+  return known.size === 1 ? [...known][0] : undefined;
+}
+
+function shownMetadata(tile: HTMLElement, mediaType: Work['mediaType']): ShownMetadata {
+  const tags = metadataTags(tile);
+  const year = uniqueNumber(tags.map(yearValue));
+  if (mediaType === 'movie') return { year };
+  const seasonCount = uniqueNumber(tags.map(tag => {
+    const match = tag.match(/^([1-9]\d{0,2}) Seasons?$/i);
+    const count = Number(match?.[1]);
+    return count > 0 && count <= 200 ? count : undefined;
+  }));
+  return year && seasonCount ? { year, seasonCount } : {};
+}
+
+function workLabel(node: Element, progress = false): WorkLabel | null {
+  const label = text(node.getAttribute('aria-label'));
+  const match = label?.match(progress ? /^(.+?),\s*(Show|Movie),\s*.+$/i : /^(.+?),\s*(Show|Movie)$/i);
+  const title = text(match?.[1]);
+  return match && title ? { title, mediaType: match[2].toLowerCase() === 'show' ? 'series' : 'movie' } : null;
+}
+
+function progressOwner(tile: HTMLElement): { link: HTMLElement; work: Work; title: string } | null {
+  const link = tile.parentElement?.closest<HTMLElement>(LINK);
+  const label = link && workLabel(link, true);
+  if (!link || !label) return null;
+  const work = linkedWork(link, true);
+  return work && label.mediaType === work.mediaType ? { link, work, title: label.title } : null;
+}
+
+function publicPosterAsset(image: HTMLImageElement): string | null {
+  try {
+    const url = new URL(image.currentSrc || image.getAttribute('src') || '', HOTSTAR_ORIGIN);
+    if (url.origin !== 'https://img10.hotstar.com' || url.username || url.password) return null;
+    return url.pathname.match(/\/sources\/r1\/cms\/prod\/\d{1,12}\/([A-Za-z0-9_-]{1,100}(?:\.[A-Za-z0-9]{1,5})?)$/)?.[1] ?? null;
+  } catch { return null; }
+}
+
+function posterAction(tile: HTMLElement): HTMLElement | null {
+  const actions = [...tile.querySelectorAll<HTMLElement>(ACTION)].filter(action => action.closest(DEFAULT) === tile && !action.closest(HOVER));
+  return actions.length === 1 ? actions[0] : null;
+}
+
+function posterIdentity(tile: HTMLElement): PosterIdentity | null {
+  const action = posterAction(tile);
+  if (!action) return null;
+  const label = workLabel(action);
+  if (!label) return null;
+  const normalised = normaliseTitle(label.title);
+  const artwork = [...action.querySelectorAll<HTMLImageElement>(IMAGE)].filter(image =>
+    normaliseTitle(image.alt) === normalised && !image.closest(TITLE_CUTOUT));
+  if (artwork.length !== 1) return null;
+  const asset = publicPosterAsset(artwork[0]);
+  return asset ? { ...label, key: JSON.stringify([asset, normalised, label.mediaType]), image: artwork[0] } : null;
+}
+
+function coversPoster(hover: DOMRect, poster: DOMRect): boolean {
+  if (poster.width < 76 || poster.height < 38) return false;
+  const width = Math.min(hover.right, poster.right) - Math.max(hover.left, poster.left);
+  const height = Math.min(hover.bottom, poster.bottom) - Math.max(hover.top, poster.top);
+  return width > 0 && height > 0 && width * height >= poster.width * poster.height * 0.7;
+}
+
+function learnPoster(hover: HTMLElement, work: Work, displayTitle: string): void {
+  const owner = hover.parentElement;
+  const row = owner?.parentElement;
+  if (!owner?.matches('[role="button"]') || !row || owner.querySelectorAll(HOVER).length !== 1) return;
+  const trays = [...row.children].filter(child => child !== owner && child.querySelector(DEFAULT));
+  if (trays.length !== 1) return;
+  const bounds = hover.getBoundingClientRect();
+  const title = normaliseTitle(displayTitle);
+  const cutout = cutoutTitle(hover);
+  if (!cutout || normaliseTitle(cutout) !== title) return;
+  const matches = [...trays[0].querySelectorAll<HTMLElement>(DEFAULT)].filter(tile => {
+    const action = posterAction(tile);
+    if (!action) return false;
+    const label = workLabel(action);
+    return label?.mediaType === work.mediaType && normaliseTitle(label.title) === title && coversPoster(bounds, action.getBoundingClientRect());
+  });
+  if (matches.length !== 1) return;
+  const tile = matches[0];
+  const identity = posterIdentity(tile);
+  if (!identity || !coversPoster(bounds, identity.image.getBoundingClientRect())) return;
+  coveredCards.set(tile, hover);
+  const { key } = identity;
+  const previous = learnedPosters.get(key);
+  if (previous === null) return;
+  if (previous && previous.work.titleId !== work.titleId) {
+    learnedPosters.set(key, null);
+    return;
+  }
+  const metadata = shownMetadata(hover, work.mediaType);
+  if (!previous && learnedPosters.size < MAX_LEARNED_POSTERS) learnedPosters.set(key, { work, metadata });
+  else if (previous?.metadata && metadata.year) {
+    if (!previous.metadata.year) previous.metadata = metadata;
+    else if (previous.metadata.year !== metadata.year || previous.metadata.seasonCount !== metadata.seasonCount) previous.metadata = null;
+  }
+}
+
+function isCovered(tile: HTMLElement): boolean {
+  const card = tile.closest<HTMLElement>(DEFAULT);
+  const hover = card && coveredCards.get(card);
+  return !!hover && hover.parentElement?.parentElement?.contains(card) === true && rendered(hover);
+}
+
+function cutoutTitle(scope: HTMLElement): string | undefined {
+  const cutout = scope.querySelector<HTMLElement>(TITLE_CUTOUT);
+  if (!cutout || !rendered(cutout)) return;
+  const candidates = [...cutout.querySelectorAll<HTMLElement>('img[alt],[data-testid="image-fallback-text"]')];
+  const labels = new Map<string, string>();
+  for (const node of candidates) {
+    if (!rendered(node)) continue;
+    const label = text(node.matches('img') ? node.getAttribute('alt') : node.textContent);
+    if (label) labels.set(normaliseTitle(label), label);
+  }
+  return labels.size === 1 ? labels.values().next().value : undefined;
 }
 
 function labelFrom(scope: HTMLElement): string | undefined {
   const image = (within: Element | null) => text(within?.querySelector('img[alt]')?.getAttribute('alt'));
-  const cutout = scope.querySelector(TITLE_CUTOUT);
+  const search = scope.querySelector(SEARCH_HERO);
+  const searchTitles = search ? [...search.querySelectorAll<HTMLElement>('p.TITLE2')].filter(rendered) : [];
+  const searchTitle = searchTitles.length === 1 ? text(searchTitles[0].textContent) : undefined;
   const heading = scope.querySelector('h1,h2');
-  return image(cutout) ?? text(cutout?.querySelector('[data-testid="image-fallback-text"]')?.textContent) ??
+  return cutoutTitle(scope) ?? searchTitle ??
     text(heading?.textContent) ?? image(heading) ?? image(scope.querySelector('[data-testid="autoplay-trailer-image-container"]')) ??
     text(scope.querySelector(`${IMAGE}[alt]`)?.getAttribute('alt'));
 }
 
-function fromWork(work: Work, displayTitle: string, year?: number): TitleObservation {
+function fromWork(work: Work, displayTitle: string, { year, seasonCount }: ShownMetadata = {}): TitleObservation {
   return { ref: { platformId: 'hotstar', titleId: work.titleId }, displayTitle, mediaType: work.mediaType,
     pagePath: work.pagePath, adapterVersion: VERSION,
-    ...(work.mediaType === 'movie' && year ? { year: { value: year, meaning: 'movie_release' as const } } : {}) };
+    ...(year && (work.mediaType === 'movie' || seasonCount) ? { year: { value: year, meaning: work.mediaType === 'movie' ? 'movie_release' : 'season_release' } } : {}),
+    ...(work.mediaType === 'series' && year && seasonCount ? { seasonCount } : {}) };
 }
 
 function detailObservation(tile: HTMLElement): TitleObservation | null {
@@ -85,9 +228,9 @@ function detailObservation(tile: HTMLElement): TitleObservation | null {
   const displayTitle = canonical ?? visible;
   if (!displayTitle) return null;
   const structuredYear = work.mediaType === 'movie' ? yearValue(data?.releaseYear) : undefined;
-  const shownYear = work.mediaType === 'movie' ? movieYear(tile) : undefined;
+  const { year: shownYear, seasonCount } = shownMetadata(tile, work.mediaType);
   const year = structuredYear && shownYear && structuredYear !== shownYear ? undefined : structuredYear ?? shownYear;
-  const observation = fromWork(work, displayTitle, year);
+  const observation = fromWork(work, displayTitle, { year, seasonCount });
   const names = (value: unknown, limit: number) => Array.isArray(value) ? value.slice(0, limit)
     .flatMap(person => record(person) && typeof person.name === 'string' ? [person.name] : []) : [];
   const credits = data && validateFilmCredits({ directors: names(data.director, 10), actors: names(data.actor, 12) });
@@ -95,57 +238,97 @@ function detailObservation(tile: HTMLElement): TitleObservation | null {
   return observation;
 }
 
+function expandedWork(tile: HTMLElement): { work: Work; title: string } | null {
+  const progress = tile.matches(HOVER) ? progressOwner(tile) : null;
+  const candidates = new Map<string, Work>();
+  if (progress) candidates.set(progress.work.pagePath, progress.work);
+  for (const anchor of tile.querySelectorAll(LINK)) {
+    const work = linkedWork(anchor, true);
+    if (work) candidates.set(work.pagePath, work);
+  }
+  const title = progress?.title ?? labelFrom(tile);
+  if (!title || candidates.size !== 1) return null;
+  return { work: [...candidates.values()][0], title };
+}
+
 function observation(tile: HTMLElement): TitleObservation | null {
   if (tile.matches(DETAIL)) return detailObservation(tile);
   if (tile.matches(`${HOVER},${FEATURED}`)) {
-    const candidates = new Map<string, Work>();
-    // Native preview links may sit outside the preview container but inside its owner.
-    for (const anchor of tile.querySelectorAll(LINK)) {
-      const work = linkedWork(anchor, true);
-      if (work) candidates.set(work.pagePath, work);
-    }
-    const title = labelFrom(tile);
-    if (!title || candidates.size !== 1) return null;
-    return fromWork([...candidates.values()][0], title, movieYear(tile));
+    if (!rendered(tile)) return null;
+    const expanded = expandedWork(tile);
+    return expanded ? fromWork(expanded.work, expanded.title, shownMetadata(tile, expanded.work.mediaType)) : null;
   }
-  if (!tile.matches(LINK) || tile.closest(`${HOVER},${DETAIL},${FEATURED}`)) return null;
+  if (tile.matches(DEFAULT)) {
+    if (isCovered(tile) || [...tile.querySelectorAll(LINK)].some(anchor => !anchor.closest(HOVER) && linkedWork(anchor, false))) return null;
+    const identity = posterIdentity(tile);
+    const learned = identity && learnedPosters.get(identity.key);
+    return identity && learned ? fromWork(learned.work, identity.title, learned.metadata ?? undefined) : null;
+  }
+  if (!tile.matches(LINK) || tile.closest(`${HOVER},${DETAIL},${FEATURED}`) || isCovered(tile)) return null;
   const label = text(tile.getAttribute('aria-label'));
   // Continue Watching exposes a work name plus an explicit Show/Movie label;
   // clips and episode-only link names cannot establish whole-work identity.
-  const progress = label?.match(/^(.+?),\s*(Show|Movie),\s*.+$/i);
+  const progress = workLabel(tile, true);
   const work = linkedWork(tile, !!progress);
-  if (!work || progress && (progress[2].toLowerCase() === 'show') !== (work.mediaType === 'series')) return null;
+  if (!work || progress && progress.mediaType !== work.mediaType) return null;
+  if (progress && [...tile.querySelectorAll<HTMLElement>(HOVER)].some(hover => rendered(hover) && expandedWork(hover))) return null;
   if (!progress && !tile.querySelector(`${IMAGE},${SEARCH_HERO}`)) return null;
-  const displayTitle = text(progress?.[1]) ?? labelFrom(tile) ?? label;
-  if (displayTitle) return fromWork(work, displayTitle, movieYear(tile));
-  // A visible search hero can have a textless logo. Its exact title link is
-  // still usable for a direct ID lookup or marks, without guessing a year.
+  const displayTitle = progress?.title ?? labelFrom(tile) ?? label;
+  if (displayTitle) return fromWork(work, displayTitle, shownMetadata(tile, work.mediaType));
+  // A textless logo can still accompany an exact search-hero work link.
   if (!tile.querySelector(SEARCH_HERO)) return null;
   const slug = work.pagePath.split('/')[3].replace(/-/g, ' ');
-  return fromWork(work, slug.replace(/\b[a-z]/g, character => character.toUpperCase()));
+  return fromWork(work, slug.replace(/\b[a-z]/g, character => character.toUpperCase()), shownMetadata(tile, work.mediaType));
+}
+
+function mountTarget(tile: HTMLElement): HTMLElement | null {
+  const progress = tile.matches(HOVER) ? progressOwner(tile) : null;
+  const container = progress ? progress.link.parentElement : tile.matches(LINK) ? tile.parentElement : tile;
+  return container && !container.closest('a,button,[role="link"]') ? container : null;
 }
 
 export const hotstarAdapter: StreamingPlatformAdapter = {
   id: 'hotstar', version: VERSION,
   supports: hotstarBrowseSurface,
-  findTiles(root) { return Array.from(root.querySelectorAll<HTMLElement>(`${LINK},${HOVER},${DETAIL},${FEATURED}`)).filter(tile => !!observation(tile)); },
+  findTiles(root) {
+    const tiles = [...root.querySelectorAll<HTMLElement>(TILES)];
+    coveredCards = new WeakMap();
+    for (const hover of tiles) {
+      if (!hover.matches(HOVER) || !rendered(hover)) continue;
+      const expanded = expandedWork(hover);
+      if (expanded && !progressOwner(hover)) learnPoster(hover, expanded.work, expanded.title);
+    }
+    return tiles.filter(tile => !!observation(tile));
+  },
   observeTitle: observation,
   badgeContainer(tile) {
-    const container = tile.matches(LINK) ? tile.parentElement : tile;
-    if (!container || container.closest('a,button,[role="link"]')) return null;
+    const container = mountTarget(tile);
+    if (!container) return null;
     const bounds = container.getBoundingClientRect();
     return bounds.width >= 76 && bounds.height >= 38 ? container : null;
   },
-  badgeCorner(tile) { return tile.matches(`${HOVER},${DETAIL},${FEATURED}`) ? 'top-left' : undefined; },
-  expandedOwner(tile) { return tile.matches(`${HOVER},${DETAIL},${FEATURED}`) ? tile : undefined; },
+  badgeCorner(tile) {
+    if (tile.matches(FEATURED)) return 'top-right';
+    return tile.matches(`${HOVER},${DETAIL}`) ? 'top-left' : undefined;
+  },
+  expandedOwner(tile) { return tile.matches(`${HOVER},${DETAIL},${FEATURED}`) ? mountTarget(tile) ?? undefined : undefined; },
   artworkElement(tile) {
     const preview = tile.querySelector(PREVIEW) ?? tile;
     const artwork = preview.querySelector<HTMLElement>(`[data-testid="autoplay-trailer-image-container"] ${IMAGE}`) ?? preview.querySelector<HTMLElement>(IMAGE);
     return artwork && !artwork.closest(TITLE_CUTOUT) ? artwork : null;
   },
+  visibleImdb(tile) {
+    // The controller reads the score only after validating this tile's work observation.
+    if (!tile.matches(TILES) || !rendered(tile)) return;
+    return uniqueNumber(metadataTags(tile).map(tag => {
+      const value = tag.match(/^IMDb (\d{1,2}(?:\.\d)?)$/)?.[1];
+      const score = Number(value);
+      return score > 0 && score <= 10 ? score : undefined;
+    }));
+  },
   visibleDetails() { return null; },
   isObscured(tile) {
-    return [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].some(dialog =>
+    return (!!tile && isCovered(tile)) || [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].some(dialog =>
       dialog.getBoundingClientRect().width > 0 && !dialog.closest('[aria-hidden="true"],[hidden]') && (!tile || !dialog.contains(tile)));
   },
 };

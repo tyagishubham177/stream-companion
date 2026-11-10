@@ -37,3 +37,5 @@ Series matching reads only bound public TVSeries metadata and cast, never treats
 ## JioHotstar support (0.6.0)
 
 JioHotstar observations use whole-title IDs from supported links and public metadata in the current page. A Continue Watching episode link can identify its parent show; the episode ID and progress are ignored. Only canonical detail paths are saved, without query strings or tracking parameters. Public cast is read only on the matching detail page and compared locally. The extension does not fetch JioHotstar title pages in the background, read account state, or send cast names, platform URLs, marks, or streaming credentials to OMDb. Its only added site access is `www.hotstar.com`, with content scripts scoped to the India site.
+
+The current page keeps a small memory cache of verified poster artwork IDs and their corresponding whole-title IDs. It binds a poster to the preview shown in the same row and clears the cache on page reload. Public season counts and displayed years help compare IMDb candidates locally. IMDb scores already displayed by Hotstar are rendered directly from the page.

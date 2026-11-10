@@ -8,6 +8,8 @@ const moviePath = '/in/movies/fixture-film/9101';
 const showPath = '/in/shows/fixture-show/9102';
 const episodePath = `${showPath}/episode-two/9912/watch`;
 const hoverPath = '/in/movies/fixture-preview/9103';
+const nativeScorePath = '/in/movies/fixture-native-score/9105';
+const pairedShowPath = '/in/shows/fixture-paired-show/9106';
 const poster = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 320 180%22%3E%3Crect width=%22320%22 height=%22180%22 fill=%22teal%22/%3E%3C/svg%3E';
 const image = (title: string) => `<span data-testid="hs-image"><img src="${poster}" alt="${title}"></span>`;
 const movieTile = `<div id="movie" data-testid="action"><a data-testid="link" href="${moviePath}?tracking=fixture">${image('Fixture Film')}</a></div>`;
@@ -15,6 +17,16 @@ const showTile = `<div id="progress" data-testid="action"><a data-testid="link" 
 const hoverTile = `<div id="preview" data-testid="tray-card-hover"><div data-testid="card-hover-container">${image('Fixture Preview artwork')}
   <div data-testid="card-hover-title-cutout"><img src="${poster}" alt="Fixture Preview"></div><span data-testid="textTag">2020</span>
   <a data-testid="link" href="${hoverPath}/watch">Play preview</a></div></div>`;
+const nativeScoreTile = `<div id="native-score" data-testid="action"><a data-testid="link" href="${nativeScorePath}">${image('Fixture Native Score')}
+  <span class="native-score" data-testid="textTag">IMDb 7.8</span><span data-testid="textTag" hidden>IMDb 9.9</span></a></div>`;
+const pairedImage = (asset: string) => `https://img10.hotstar.com/image/upload/f_auto/sources/r1/cms/prod/7001/${asset}.jpg`;
+const pairedPoster = (id: string, asset: string) => `<div id="${id}" data-testid="tray-card-default"><div data-testid="action" aria-label="Fixture Paired Show, Show">
+  <span data-testid="hs-image"><img src="${pairedImage(asset)}" alt="Fixture Paired Show"></span></div></div>`;
+const tvRow = `<div id="tv-row"><div id="tv-posters">${pairedPoster('paired-poster', 'fixture-paired-a')}${pairedPoster('neighbor-poster', 'fixture-paired-b')}</div>
+  <div id="tv-hover-owner" role="button" hidden><div id="tv-preview" data-testid="tray-card-hover"><div data-testid="card-hover-container">
+  ${image('Fixture Paired Show artwork')}<div data-testid="card-hover-title-cutout"><img src="${poster}" alt="Fixture Paired Show"></div>
+  <span data-testid="textTag">2025</span><span data-testid="textTag">2 Seasons</span><a data-testid="link" href="${pairedShowPath}/watch">Play show</a>
+  </div></div></div></div>`;
 const decoys = `<div id="decoys"><div data-testid="action">${image('Unlinked poster')}</div>
   <div data-testid="action"><a data-testid="link" href="/in/clips/fixture-clip/9104/watch">${image('Fixture Clip')}</a></div></div>`;
 const netflixTile = '<div id="netflix-tile" data-uia="title-card"><a data-uia="standard-card" aria-label="Fixture Netflix Film" href="/browse?jbv=9101">Fixture Netflix Film</a></div>';
@@ -29,9 +41,16 @@ function document(body: string) {
     [data-testid="action"] a, [data-testid="action"] [data-testid="hs-image"] { display: block; width: 100%; height: 100%; }
     [data-testid="action"] img { display: block; width: 100%; height: 100%; }
     #decoys [data-testid="action"] { width: 130px; height: 80px; }
-    #preview, #detail { position: relative; width: 360px; height: 300px; background: #264950; }
-    #preview img { width: 100%; height: 135px; object-fit: cover; }
-    #preview [data-testid="card-hover-title-cutout"] img { width: 120px; height: 48px; }
+    #preview, #detail, #tv-preview { position: relative; width: 360px; height: 300px; background: #264950; }
+    #preview img, #tv-preview img { width: 100%; height: 135px; object-fit: cover; }
+    #preview [data-testid="card-hover-title-cutout"] img, #tv-preview [data-testid="card-hover-title-cutout"] img { width: 120px; height: 48px; }
+    #native-score { width: 180px; }
+    #native-score a { position: relative; }
+    .native-score { position: absolute; bottom: 8px; left: 8px; }
+    #tv-row { position: relative; }
+    #tv-posters { display: flex; gap: 24px; }
+    #tv-hover-owner { position: absolute; top: 0; left: 0; width: 560px; z-index: 2; }
+    #tv-preview { width: 100%; }
   </style><h1>Fixture catalogue</h1><main>${body}</main><script>
     window.fixtureLinkClicks = 0;
     document.addEventListener('click', event => {
@@ -43,13 +62,15 @@ function document(body: string) {
   </script>`;
 }
 
-const hotstarIds: Record<string, string> = { '9101': 'tt9100101', '9102': 'tt9100102', '9103': 'tt9100103', '9912': 'tt9100999' };
+const hotstarIds: Record<string, string> = { '9101': 'tt9100101', '9102': 'tt9100102', '9103': 'tt9100103', '9105': 'tt9100105', '9106': 'tt9100106', '9912': 'tt9100999' };
 const netflixIds: Record<string, string> = { '9101': 'tt9100201' };
 const ratings: Record<string, { title: string; type: string; score: string }> = {
   tt0133093: { title: 'Connection fixture', type: 'movie', score: '8.0' },
   tt9100101: { title: 'Fixture Film', type: 'movie', score: '8.1' },
   tt9100102: { title: 'Fixture Show', type: 'series', score: '8.2' },
   tt9100103: { title: 'Fixture Preview', type: 'movie', score: '8.3' },
+  tt9100105: { title: 'Fixture Native Score', type: 'movie', score: '7.1' },
+  tt9100106: { title: 'Fixture Paired Show', type: 'series', score: '8.4' },
   tt9100201: { title: 'Fixture Netflix Film', type: 'movie', score: '7.4' },
 };
 let context: BrowserContext;
@@ -60,6 +81,7 @@ let options: Page;
 let home: Page;
 const identityCalls: { platform: 'hotstar' | 'netflix'; ids: string[] }[] = [];
 const detailCalls: string[] = [];
+const omdbSearches: string[] = [];
 
 test.describe.configure({ mode: 'serial' });
 test.beforeAll(async ({}, info) => {
@@ -90,14 +112,19 @@ test.beforeAll(async ({}, info) => {
     }
     if (url.hostname === 'www.omdbapi.com') {
       const id = url.searchParams.get('i');
+      const search = url.searchParams.get('s');
+      if (search) omdbSearches.push(search);
       if (!id || !ratings[id]) return route.fulfill({ json: { Response: 'False', Error: 'Movie not found!' } });
       detailCalls.push(id);
       const entry = ratings[id];
       return route.fulfill({ json: { Response: 'True', Title: entry.title, Year: '2020', Type: entry.type,
         imdbID: id, imdbRating: entry.score, imdbVotes: '1,234' } });
     }
+    if ([pairedImage('fixture-paired-a'), pairedImage('fixture-paired-b')].includes(url.href)) {
+      return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="160"><rect width="260" height="160" fill="teal"/></svg>' });
+    }
     if (url.origin === hotstar) {
-      const markup = url.pathname === moviePath ? detail : `${movieTile}${showTile}${hoverTile}${decoys}`;
+      const markup = url.pathname === moviePath ? detail : url.pathname === '/in/shows' ? tvRow : `${movieTile}${showTile}${hoverTile}${nativeScoreTile}${decoys}`;
       return route.fulfill({ contentType: 'text/html', body: document(markup) });
     }
     if (url.origin === netflix) return route.fulfill({ contentType: 'text/html', body: document(netflixTile) });
@@ -135,12 +162,21 @@ test('Hotstar marks work without a key, then ratings and marks toggle independen
   home = await context.newPage();
   await home.goto(`${hotstar}/in/home`);
   await expect(mark(home.locator('#movie'))).toBeEnabled();
+  const native = home.locator('#native-score');
+  await expect(badge(native)).toHaveText('★ IMDb 7.8');
+  await badge(native).click();
+  const nativeDetails = home.getByRole('dialog', { name: 'Fixture Native Score' });
+  await expect(nativeDetails).toContainText('IMDb rating shown by JioHotstar');
+  await expect(nativeDetails.getByRole('button', { name: 'Find a match' })).toHaveCount(0);
+  await nativeDetails.getByRole('button', { name: 'Close rating details' }).click();
   expect(detailCalls).toEqual([]);
   expect(identityCalls).toEqual([]);
+  expect(omdbSearches).toEqual([]);
 
   await options.getByRole('switch', { name: 'IMDb ratings' }).uncheck();
   await home.bringToFront();
   await expect(badge(home)).toHaveCount(0);
+  await expect(mark(native)).toBeEnabled();
   await want(home, home.locator('#movie'));
   await home.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(mark(home.locator('#movie'))).toHaveAttribute('aria-label', /No marks/);
@@ -155,9 +191,13 @@ test('Hotstar marks work without a key, then ratings and marks toggle independen
   await expect(badge(home.locator('#movie'))).toHaveText('★ IMDb 8.1');
   await expect(badge(home.locator('#progress'))).toHaveText('★ IMDb 8.2');
   await expect(badge(home.locator('#preview'))).toHaveText('★ IMDb 8.3');
+  await expect(badge(native)).toHaveText('★ IMDb 7.8');
   await expect(home.locator('#decoys [data-sc-root]')).toHaveCount(0);
   expect(identityCalls.filter(call => call.platform === 'hotstar').flatMap(call => call.ids)).toEqual(expect.arrayContaining(['9101', '9102', '9103']));
   expect(identityCalls.flatMap(call => call.ids)).not.toContain('9912');
+  expect(identityCalls.flatMap(call => call.ids)).not.toContain('9105');
+  expect(detailCalls).not.toContain('tt9100105');
+  expect(omdbSearches).not.toContain('Fixture Native Score');
 
   const popup = await context.newPage();
   await popup.goto(`${base}/popup.html`);
@@ -165,6 +205,7 @@ test('Hotstar marks work without a key, then ratings and marks toggle independen
   await home.bringToFront();
   await expect(mark(home)).toHaveCount(0);
   await expect(badge(home.locator('#movie'))).toHaveText('★ IMDb 8.1');
+  await expect(badge(native)).toHaveText('★ IMDb 7.8');
   await popup.getByRole('switch', { name: 'Mark as watched' }).check();
   await home.bringToFront();
   await expect(mark(home.locator('#movie'))).toBeEnabled();
@@ -231,5 +272,48 @@ test('Hotstar detail shows the same cached rating and the SPA playback route cle
   await expect(badge(page)).toHaveCount(0);
   await expect(mark(page)).toHaveCount(0);
   expect(detailCalls).toHaveLength(priorDetails);
+  await page.close();
+});
+
+test('Hotstar TV pairs an unlinked poster only with its unambiguous same-row hover', async () => {
+  const page = await context.newPage();
+  await page.goto(`${hotstar}/in/shows`);
+  const target = page.locator('#paired-poster'), neighbor = page.locator('#neighbor-poster');
+  const hover = page.locator('#tv-preview');
+  await expect(target.locator('img')).toBeVisible();
+  await expect(neighbor.locator('img')).toBeVisible();
+  await expect(mark(target)).toHaveCount(0);
+  await expect(mark(neighbor)).toHaveCount(0);
+  expect(identityCalls.flatMap(call => call.ids)).not.toContain('9106');
+
+  // The broad hover covers both posters with the same label. Neither may
+  // acquire a whole-work ID when the geometry does not pick a unique poster.
+  await page.locator('#tv-hover-owner').evaluate(owner => { (owner as HTMLElement).hidden = false; });
+  await expect(mark(hover)).toBeEnabled();
+  await expect(badge(hover)).toHaveText('★ IMDb 8.4');
+  await page.locator('#tv-hover-owner').evaluate(owner => { (owner as HTMLElement).hidden = true; });
+  await expect(mark(hover)).toHaveCount(0);
+  await expect(mark(target)).toHaveCount(0);
+  await expect(mark(neighbor)).toHaveCount(0);
+
+  await page.locator('#tv-hover-owner').evaluate(owner => {
+    const frame = owner as HTMLElement;
+    frame.style.width = '360px'; frame.hidden = false;
+  });
+  await expect(mark(hover)).toBeEnabled();
+  await mark(hover).press('Enter');
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Watched so far' })).toBeVisible();
+  await page.getByRole('menuitemradio', { name: 'Want to watch', exact: true }).click();
+  await expect(mark(hover)).toHaveAttribute('aria-label', /Want to watch/);
+  await page.locator('#tv-hover-owner').evaluate(owner => { (owner as HTMLElement).hidden = true; });
+  await expect(mark(target)).toHaveAttribute('aria-label', /^Fixture Paired Show: Want to watch/);
+  await expect(badge(target)).toHaveText('★ IMDb 8.4');
+  await expect(mark(neighbor)).toHaveCount(0);
+  await expect(badge(neighbor)).toHaveCount(0);
+  expect(identityCalls.filter(call => call.platform === 'hotstar').flatMap(call => call.ids)).toContain('9106');
+  expect(await page.evaluate(() => Reflect.get(window, 'fixtureLinkClicks'))).toBe(0);
+  await expect(page).toHaveURL(`${hotstar}/in/shows`);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(mark(target)).toHaveAttribute('aria-label', /No marks/);
   await page.close();
 });

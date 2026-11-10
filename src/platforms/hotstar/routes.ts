@@ -1,7 +1,7 @@
 export const HOTSTAR_ORIGIN = 'https://www.hotstar.com';
 
 const TITLE_PATH = /^\/in\/(movies|shows)\/([a-z0-9-]{1,180})\/(\d{1,12})\/?$/;
-const CATALOGUE_PATH = /^\/in\/(?:home|explore|tv|movies|browse(?:\/[a-zA-Z0-9_-]{1,120}){1,4})\/?$/;
+const CATALOGUE_PATH = /^\/in\/(?:home|explore|tv|shows|movies|browse(?:\/[a-zA-Z0-9_-]{1,120}){1,4})\/?$/;
 
 interface HotstarTitlePath {
   titleId: string;
