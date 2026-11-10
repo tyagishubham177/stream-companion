@@ -134,6 +134,7 @@ export const netflixAdapter: StreamingPlatformAdapter = {
     return null;
   },
   badgeCorner(tile) { return tile.matches(`${PREVIEW},${MODAL}`) ? 'top-left' : undefined; },
+  expandedOwner(tile) { return tile.matches(`${PREVIEW},${MODAL}`) ? tile : undefined; },
   artworkElement(tile) {
     const scope = tile.matches(`${PREVIEW},${MODAL}`) ? tile.querySelector<HTMLElement>(HERO) : tile;
     if (!scope) return null;

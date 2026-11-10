@@ -1,6 +1,7 @@
 import { ExtensionContextInvalidatedError, extensionContextAlive, rpc } from '../shared/client';
 import { observationFingerprint } from '../shared/identity';
-import { titleKey, type Broadcast, type LookupResult, type LookupState, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
+import { titleKey, type Broadcast, type LookupResult, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
+import type { BadgeState } from '../features/ratings/presentation';
 import { adapterFor } from '../platforms/registry';
 import type { StreamingPlatformAdapter } from '../platforms/contracts';
 import { Overlay, type BadgeMount } from './overlay';
@@ -17,7 +18,7 @@ interface TileState {
   button: HTMLButtonElement;
   mount: BadgeMount;
   visible: boolean;
-  state: LookupState | null;
+  state: BadgeState | null;
   requested: boolean;
   retries: number;
   checkedAt?: number;
@@ -189,7 +190,7 @@ export class ContentController {
     });
     this.mutation.observe(document.documentElement, {
       subtree: true, childList: true, attributes: true, characterData: true,
-      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'alt'],
+      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'data-testid', 'alt'],
     });
     this.scan();
   }
@@ -237,11 +238,12 @@ export class ContentController {
         const state = this.tiles.get(tile); if (state) this.open(state);
       });
       const fingerprint = observationFingerprint(observation);
-      const shared = [...this.tiles.values()].find(other => other.fingerprint === fingerprint &&
-        (other.state?.kind === 'rated' || other.state?.kind === 'unrated') && ratingCacheState(other.state.record) === 'fresh');
+      const initial = this.initialState(tile);
+      const shared = initial?.kind !== 'hotstar_score' ? [...this.tiles.values()].find(other => other.fingerprint === fingerprint &&
+        (other.state?.kind === 'rated' || other.state?.kind === 'unrated') && ratingCacheState(other.state.record) === 'fresh') : undefined;
       const state: TileState = { tile, button: mount.button, mount, observation, fingerprint, generation: 0,
-        revision: shared?.revision ?? 0, visible: false, state: shared?.state ?? this.initialState(),
-        requested: !!shared, retries: 0, checkedAt: shared?.checkedAt };
+        revision: shared?.revision ?? 0, visible: false, state: shared?.state ?? initial,
+        requested: !!shared || initial?.kind === 'hotstar_score', retries: 0, checkedAt: shared?.checkedAt };
       this.overlay.updateBadge(state.button, observation, state.state);
       this.tiles.set(tile, state); this.intersection?.observe(tile);
     }
@@ -255,23 +257,28 @@ export class ContentController {
       return false;
     }
     const fingerprint = observationFingerprint(current);
+    const initial = this.initialState(state.tile);
+    const sourceScore = initial?.kind === 'hotstar_score' ? initial.score : undefined;
+    const previousScore = state.state?.kind === 'hotstar_score' ? state.state.score : undefined;
     if (fingerprint !== state.fingerprint) {
       const previousRef = state.observation.ref;
       state.observation = current; state.fingerprint = fingerprint; state.revision = 0;
       if (titleKey(previousRef) !== titleKey(current.ref)) this.releaseTitle(previousRef);
-      this.invalidateTile(state);
-    }
+      this.invalidateTile(state, initial);
+    } else if (sourceScore !== previousScore) this.invalidateTile(state, initial);
     return true;
   }
 
-  private invalidateTile(state: TileState): void {
-    state.generation++; state.state = this.initialState(); state.requested = false; state.retries = 0;
+  private invalidateTile(state: TileState, initial = this.initialState(state.tile)): void {
+    state.generation++; state.state = initial; state.requested = initial?.kind === 'hotstar_score'; state.retries = 0;
     clearTimeout(state.timer); state.timer = undefined; this.overlay?.closeFor(state.button);
     this.overlay?.updateBadge(state.button, state.observation, state.state);
     if (state.visible) this.queueLookup(state);
   }
 
-  private initialState(): LookupState | null {
+  private initialState(tile: HTMLElement): BadgeState | null {
+    const score = this.adapter?.visibleImdb?.(tile);
+    if (score !== undefined) return { kind: 'hotstar_score', score };
     return this.status?.keyConfigured === false ? { kind: 'setup_required' } : null;
   }
 
@@ -350,7 +357,7 @@ export class ContentController {
   }
 
   private async lookup(state: TileState, refresh = false): Promise<void> {
-    if (!this.overlay || !this.syncIdentity(state) || document.hidden || !this.status?.settings.enabled) return;
+    if (!this.overlay || !this.syncIdentity(state) || state.state?.kind === 'hotstar_score' || document.hidden || !this.status?.settings.enabled) return;
     const generation = state.generation;
     const fingerprint = state.fingerprint;
     const revision = state.revision;
@@ -433,8 +440,8 @@ export class ContentController {
   private stats(): PageStats {
     const all = [...this.tiles.values()];
     return {
-      platformId: this.adapter?.id ?? 'netflix', supported: !!this.adapter && all.length > 0,
-      tiles: all.length, rated: all.filter(t => t.state?.kind === 'rated').length,
+      platformId: this.adapter?.id ?? (location.hostname === 'www.hotstar.com' ? 'hotstar' : 'netflix'), supported: !!this.adapter,
+      tiles: all.length, rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length,
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,
       cached: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,
     };

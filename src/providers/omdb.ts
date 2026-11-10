@@ -27,9 +27,12 @@ export function parseDetail(raw: unknown, expectedId: string, now: number): Rati
     typeof raw.Director === 'string' && raw.Director.length <= 2000 ? raw.Director.split(',') : undefined;
   const credits = directors && typeof raw.Actors === 'string' && raw.Actors.length <= 5000
     ? validateFilmCredits({ directors, actors: raw.Actors.split(',') }) : undefined;
+  const seasons = raw.Type === 'series' && typeof raw.totalSeasons === 'string' && /^[1-9]\d{0,2}$/.test(raw.totalSeasons)
+    ? Number(raw.totalSeasons) : undefined;
+  const seasonCount = seasons !== undefined && seasons <= 200 ? seasons : undefined;
   return { subject: { namespace: 'imdb', id: raw.imdbID }, source: 'imdb', provider: 'omdb',
     title: raw.Title as string, year: raw.Year as string, mediaType: raw.Type as 'movie' | 'series',
-    score, scale: 10, votes, fetchedAt: now, ...(credits ? { credits } : {}) };
+    score, scale: 10, votes, fetchedAt: now, ...(credits ? { credits } : {}), ...(seasonCount !== undefined ? { seasonCount } : {}) };
 }
 /** A title-query response still passes the same complete ID/type/detail validation. */
 export function parseTitleDetail(raw: unknown, now: number): RatingRecord {

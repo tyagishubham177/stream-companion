@@ -9,7 +9,9 @@ export function normaliseTitle(title: string): string {
 export function observationFingerprint(o: TitleObservation): string {
   return JSON.stringify([o.ref.platformId, o.ref.titleId, normaliseTitle(o.displayTitle), o.mediaType,
     o.year?.value ?? null, o.year?.meaning ?? null,
-    [...new Set((o.aliases ?? []).map(normaliseTitle))].sort(), o.adapterVersion]);
+    [...new Set((o.aliases ?? []).map(normaliseTitle))].sort(), o.adapterVersion,
+    ...(o.credits ? [[o.credits.directors.map(normaliseTitle).sort(), o.credits.actors.map(normaliseTitle).sort()]] : []),
+    ...(o.seasonCount === undefined ? [] : [o.seasonCount])]);
 }
 
 export function usableYear(o: TitleObservation): number | undefined {

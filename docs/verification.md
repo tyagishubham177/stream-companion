@@ -1,5 +1,17 @@
 # Stream Companion v1 verification
 
+## JioHotstar and primary feature switches (0.6.0)
+
+Typecheck, build, 605 unit tests and all 32 browser tests passed. Four disposable-profile Hotstar MV3 cases cover independent Settings and popup switches, marks without a key, Save and Undo, canonical library links, same-number title isolation across platforms, cached detail ratings and playback teardown. They also cover the series ID on Continue Watching, explicit native IMDb scores without provider calls, and retaining ratings and marks only on a verified collapsed poster. The isolated settings smoke check included a 320px viewport. The ZIP contains 18 files, `storage` as the only ordinary permission, and the JioHotstar India content-script scope.
+
+Before implementation, live JioHotstar DOM inspection established the shapes for featured titles, search cards, Continue Watching, expanded previews and detail heroes. Search and preview links exposed whole-work IDs. Some collapsed Home posters exposed only a name and artwork. Public detail metadata supplied bound film year and cast. The first installed 0.6.0 smoke check confirmed numeric ratings on Home and Search and exposed further coverage gaps.
+
+The follow-up sampled Home, TV, Movies and the `crime`, `The Office` and `Hindi thriller` searches. The first TV view had eight collapsed posters and no extension badges because its `/in/shows` route was missing. A `crime` snapshot showed three numeric film ratings and eleven unresolved series among fourteen visible badges. A featured film displayed a native IMDb rating beside an unresolved extension badge. The TV route, episode labels and featured rating handling are updated. Series now use the displayed year as corroboration alongside the exact season count, exact title and type. An incomplete candidate set remains unresolved. Collapsed posters reuse a verified same-row preview association for the current document. This follow-up still needs a reload for installed comparison.
+
+The provider uses [Wikidata's JioHotstar ID property](https://www.wikidata.org/wiki/Property:P11049) in a separate batch namespace with shared transport limits. Hotstar film and series fallback tests verify exact film year/type matching and three-actor corroboration, and reject conflicting cast. The fixture suite does not establish live rating coverage across the JioHotstar catalogue.
+
+## Earlier verification (0.5.0 and below)
+
 Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.5.0. Version 0.5.0 verification uses disposable synthetic MV3/browser profiles; installed live Netflix evidence is labelled separately below. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results

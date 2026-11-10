@@ -9,12 +9,16 @@ export interface PlatformTitleRef { platformId: string; titleId: string }
 export interface ExternalTitleRef { namespace: 'imdb'; id: string }
 export type MediaType = 'movie' | 'series' | 'unknown';
 export type YearMeaning = 'movie_release' | 'series_start' | 'season_release' | 'unknown';
+export type PlatformMetadataSource = 'netflix' | 'hotstar';
 export interface TitleObservation {
   ref: PlatformTitleRef;
   displayTitle: string;
   mediaType: MediaType;
   year?: { value: number; meaning: YearMeaning };
+  seasonCount?: number;
   aliases?: string[];
+  pagePath?: string;
+  credits?: FilmCredits;
   adapterVersion: number;
 }
 export interface RatingRecord {
@@ -22,6 +26,7 @@ export interface RatingRecord {
   source: 'imdb'; provider: 'omdb';
   title: string; year: string; mediaType: 'movie' | 'series';
   score: number | null; scale: 10; votes: number | null; fetchedAt: number;
+  seasonCount?: number;
   credits?: FilmCredits;
 }
 export interface Candidate { id: string; title: string; year: string; mediaType: 'movie' | 'series' }
@@ -31,12 +36,12 @@ export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
   evidence: TitleObservation; resolverVersion: number; rejected: string[];
-  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: 'netflix'; checkedAt: number; matchBasis?: 'credits' };
+  provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: PlatformMetadataSource; checkedAt: number; matchBasis?: 'credits' | 'seasons' };
 }
 export type DeferredReason = 'budget' | 'quota' | 'offline' | 'provider' | 'key' | 'storage' | 'busy' | 'clock';
 export type LookupState =
-  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | 'netflix'; matchBasis?: 'credits' }
-  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | 'netflix'; matchBasis?: 'credits' }
+  | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
+  | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
   | { kind: 'needs_match'; reason: 'insufficient_evidence' | 'ambiguous' | 'contradiction' | 'not_found' }
   | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string }
   | { kind: 'setup_required' }
@@ -57,7 +62,7 @@ export interface AppStatus extends PublicStatus {
   requests24h: number; automaticLimit: number; totalLimit: number;
   mappings: number; ratings: number; matchingLogFailed: boolean;
 }
-export interface SavedMatch { ref: PlatformTitleRef; displayTitle: string; imdbId: string; revision: number }
+export interface SavedMatch { ref: PlatformTitleRef; displayTitle: string; imdbId: string; revision: number; pagePath?: string }
 export interface CorrectionContext { id: string; observation: TitleObservation; revision: number }
 export interface PageStats {
   platformId: string; supported: boolean; tiles: number; rated: number; unresolved: number; cached: number;
