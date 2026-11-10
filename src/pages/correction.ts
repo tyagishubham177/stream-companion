@@ -1,6 +1,7 @@
+import { platformLabel } from '../platforms/links';
 import { rpc } from '../shared/client';
 import type { CorrectionContext, CorrectionSearchResult, LookupResult, RatingRecord } from '../shared/contracts';
-import { dateLabel, element, imdbLink, message, notice } from './ui';
+import { dateLabel, element, imdbLink, message, notice, streamingLink } from './ui';
 
 interface Preview { previewId: string; record: RatingRecord }
 let context: CorrectionContext | undefined;
@@ -122,7 +123,13 @@ void (async () => {
     context = await rpc<CorrectionContext>({ type: 'GET_CONTEXT', contextId });
     const observation = context.observation;
     element('source-title').textContent = observation.displayTitle;
-    element('source-detail').textContent = [observation.ref.platformId === 'netflix' ? 'Netflix' : observation.ref.platformId, observation.mediaType === 'unknown' ? 'Type unknown' : observation.mediaType === 'series' ? 'Series' : 'Movie', observation.year ? `${observation.year.value} (${observation.year.meaning.replaceAll('_', ' ')})` : 'Year unavailable'].join(' · ');
+    element('source-detail').textContent = [
+      platformLabel(observation.ref.platformId),
+      observation.mediaType === 'unknown' ? 'Type unknown' : observation.mediaType === 'series' ? 'Series' : 'Movie',
+      observation.year ? `${observation.year.value} (${observation.year.meaning.replaceAll('_', ' ')})` : 'Year unavailable',
+    ].join(' · ');
+    const sourceLink = streamingLink(observation);
+    if (sourceLink) element('source-link').append(sourceLink);
     element<HTMLInputElement>('query').value = observation.displayTitle;
     element('correction-workspace').hidden = false;
     updateControls();

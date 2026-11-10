@@ -1,6 +1,13 @@
 # Changelog
 
-Versions below are matched to their committed extension manifests. Historical tags preserve those snapshots; the latest packaged release is v0.5.0.
+Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
+
+## 0.6.0 — JioHotstar and simpler feature controls
+
+- Put independent IMDb ratings and Mark as watched switches in the popup and at the top of Settings.
+- Bring ratings, watched/plan marks and Undo to supported JioHotstar India cards, expanded previews and title details.
+- Use JioHotstar IDs from Wikidata, reliable film release years and public title-page credits to resolve ratings. Keep series identity separate from episode links and season years.
+- Keep marks and corrections separate by platform, with canonical title links in Your titles.
 
 ## 0.5.0 — Your marks, modular controls and catalogue coverage
 

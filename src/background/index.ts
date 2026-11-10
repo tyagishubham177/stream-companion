@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION, RESOLVER_VERSION, titleKey, type AppStatus, type Broadcast, type CorrectionContext, type LookupResult, type Mapping, type PlatformTitleRef, type PublicStatus, type RatingRecord, type SavedMatch, type SearchResult } from '../shared/contracts';
-import { authoriseCommand, authoriseSender, validateRequest } from '../shared/validation';
+import { authoriseRequest, validateRequest } from '../shared/validation';
 import { contradicts, observationFingerprint, parseImdbInput } from '../shared/identity';
 import { parseSearch, ProviderError } from '../providers/omdb';
 import { Configuration } from './config';
@@ -31,7 +31,7 @@ interface StoredContext extends CorrectionContext {
   searches?: Array<SearchEvidence & { id: string }>;
   preview?: { id: string; record: RatingRecord; expiresAt: number; selection?: SearchSelection };
 }
-interface Client { tabId: number; documentId: string }
+interface Client { tabId: number; documentId: string; platformId?: string }
 const rates = new Map<string, { since: number; count: number; active: number }>();
 let actionsSincePrune = 0;
 let maintenanceFailed = false;
@@ -61,11 +61,11 @@ function releaseDemand(documentId: string, ref?: PlatformTitleRef): void {
   else { for (const token of entries.values()) token.active = false; demands.delete(documentId); }
 }
 
-async function register(sender: chrome.runtime.MessageSender): Promise<void> {
+async function register(sender: chrome.runtime.MessageSender, platformId: string): Promise<void> {
   if (sender.tab?.id === undefined || !sender.documentId) return;
   // Documents are ephemeral routing metadata, never a record of titles or full URLs.
   const documentId = sender.documentId; const tabId = sender.tab.id;
-  await mutateClients(clients => { clients[documentId] = { tabId, documentId }; });
+  await mutateClients(clients => { clients[documentId] = { tabId, documentId, platformId }; });
 }
 async function broadcast(message: Broadcast): Promise<void> {
   if (message.type === 'SC_MARKS_CHANGED') {
@@ -78,8 +78,9 @@ async function broadcast(message: Broadcast): Promise<void> {
     }
   }
   const { clients = {} } = await chrome.storage.session.get('clients') as { clients?: Record<string, Client> };
+  const targets = Object.values(clients).filter(client => !message.ref || (client.platformId ?? 'netflix') === message.ref.platformId);
   const failed: string[] = [];
-  await Promise.all(Object.values(clients).map(async client => {
+  await Promise.all(targets.map(async client => {
     try { await chrome.tabs.sendMessage(client.tabId, message, { documentId: client.documentId }); }
     catch { failed.push(client.documentId); }
   }));
@@ -103,7 +104,7 @@ async function status(): Promise<AppStatus> {
 }
 async function context(id: string): Promise<StoredContext> {
   const value = await repo.get<StoredContext>('contexts', id);
-  if (!value || value.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from Netflix.');
+  if (!value || value.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from the streaming page.');
   return value;
 }
 function correctionEvent(ctx: StoredContext, kind: MatchEvent['kind'], data: Parameters<MatchingLog['event']>[4] = {}): MatchEvent {
@@ -120,7 +121,7 @@ async function saveMatch(ctx: StoredContext, record: RatingRecord): Promise<Look
     const live = await txGet<StoredContext>(tx, 'contexts', ctx.id);
     if (!live || live.expiresAt < Date.now() || !live.preview || live.preview.id !== ctx.preview?.id || live.preview.expiresAt < Date.now())
       throw new Error('Preview the title again before saving the match.');
-    if ((current?.revision ?? 0) !== ctx.revision || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== ctx.resetEpoch) throw new Error('The match changed in another page. Reopen Match title from Netflix.');
+    if ((current?.revision ?? 0) !== ctx.revision || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== ctx.resetEpoch) throw new Error('The match changed in another page. Reopen Match title from the streaming page.');
     const revision = (current?.revision ?? 0) + 1;
     const rejected = new Set(current?.rejected ?? []);
     if (current?.subject && current.subject.id !== record.subject.id) rejected.add(current.subject.id);
@@ -137,7 +138,7 @@ async function saveMatch(ctx: StoredContext, record: RatingRecord): Promise<Look
       comparison: { evidence, checks: candidateChecks(evidence, candidateRecord(record), current?.rejected ?? []),
         returnedByAutomaticSearch: !!automaticSearch, automaticRank },
     }));
-    if (!logged) throw new Error('This correction session expired. Open Match title again from Netflix.');
+    if (!logged) throw new Error('This correction session expired. Open Match title again from the streaming page.');
     tx.objectStore('contexts').delete(ctx.id);
     return revision;
   }, true);
@@ -163,8 +164,8 @@ async function removeMatch(ref: PlatformTitleRef, expectedRevision: number): Pro
 
 async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promise<unknown> {
   const request = validateRequest(raw);
-  const role = authoriseSender(sender, chrome.runtime.id, request.type);
-  authoriseCommand(role, request.type);
+  const authority = authoriseRequest(sender, chrome.runtime.id, request);
+  const { role } = authority;
   const rateKey = sender.documentId ?? `${role}:${sender.url?.split('?')[0]}`;
   const now = Date.now();
   let rate = rates.get(rateKey);
@@ -188,7 +189,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
       }
       for (const [key, value] of navigationRates) if (Date.now() - value.at > 60000) navigationRates.delete(key);
     }
-    if (role === 'content') await register(sender);
+    if (role === 'content') await register(sender, authority.platformId);
     switch (request.type) {
       case 'GET_PUBLIC_STATUS': return await publicStatus();
       case 'GET_STATUS': return await status();
@@ -228,7 +229,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         const automatic = await matchingLog.latest(request.observation, request.revision, resetEpoch);
         const ctx: StoredContext = { id, observation: request.observation, revision: request.revision, resetEpoch, logEpoch, automatic, expiresAt: Date.now() + 1800000 };
         await repo.transaction(['contexts', 'matchingLogs', 'state'], async tx => {
-          if ((await txGet<number>(tx, 'state', 'matchingLogEpoch') ?? 0) !== ctx.logEpoch) throw new Error('This correction session expired. Open Match title again from Netflix.');
+          if ((await txGet<number>(tx, 'state', 'matchingLogEpoch') ?? 0) !== ctx.logEpoch) throw new Error('This correction session expired. Open Match title again from the streaming page.');
           txPut(tx, 'contexts', id, ctx);
           await matchingLog.appendInTransaction(tx, correctionEvent(ctx, 'opened', { automatic }));
         });
@@ -249,7 +250,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
           const search = { ...result, query: request.query.trim(), id: crypto.randomUUID() };
           await repo.transaction(['contexts', 'matchingLogs', 'state'], async tx => {
             const live = await txGet<StoredContext>(tx, 'contexts', ctx.id);
-            if (!live || live.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from Netflix.');
+            if (!live || live.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from the streaming page.');
             txPut(tx, 'contexts', ctx.id, { ...live, searches: [...(live.searches ?? []), search].slice(-10) });
             await matchingLog.appendInTransaction(tx, correctionEvent(ctx, 'search', { search }));
           });
@@ -277,7 +278,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
           const previewId = crypto.randomUUID();
           await repo.transaction(['contexts', 'matchingLogs', 'state'], async tx => {
             const live = await txGet<StoredContext>(tx, 'contexts', ctx.id);
-            if (!live || live.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from Netflix.');
+            if (!live || live.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from the streaming page.');
             txPut(tx, 'contexts', ctx.id, { ...live, preview: { id: previewId, record, selection, expiresAt: Date.now() + 600000 } });
             await matchingLog.appendInTransaction(tx, correctionEvent(ctx, 'preview', { candidate: candidateRecord(record), selection }));
           });
@@ -292,8 +293,10 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
           return await saveMatch(ctx, ctx.preview.record);
         } catch (error) { await logFailure(ctx, 'confirmation', error); throw error; }
       }
-      case 'LIST_MATCHES': return (await repo.all<Mapping>('mappings')).filter(x => x.value.subject).map(x => ({ ref: x.value.ref, displayTitle: x.value.evidence.displayTitle,
-        imdbId: x.value.subject!.id, revision: x.value.revision } satisfies SavedMatch));
+      case 'LIST_MATCHES': return (await repo.all<Mapping>('mappings')).filter(x => x.value.subject).map(x => ({
+        ref: x.value.ref, displayTitle: x.value.evidence.displayTitle, imdbId: x.value.subject!.id, revision: x.value.revision,
+        ...(x.value.evidence.pagePath ? { pagePath: x.value.evidence.pagePath } : {}),
+      } satisfies SavedMatch));
       case 'REMOVE_MATCH': await removeMatch(request.ref, request.revision); return null;
       case 'RESET_MATCHES': {
         await repo.transaction(['mappings', 'state', 'matchingLogs'], async tx => {
@@ -330,7 +333,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         return { product: 'Stream Companion', version: chrome.runtime.getManifest().version, protocol: PROTOCOL_VERSION,
           generatedAt: new Date().toISOString(), enabled: app.settings.enabled, cacheOnly: app.settings.cacheOnly,
           keyConfigured: app.keyConfigured, providerState: app.provider.kind, requests24h: app.requests24h,
-          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, matchingLogFailed: matchingLog.failed, platforms: ['netflix'], features: ['ratings', 'marks'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
+          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, matchingLogFailed: matchingLog.failed, platforms: ['netflix', 'hotstar'], features: ['ratings', 'marks'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
       }
     }
   } finally {

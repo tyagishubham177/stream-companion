@@ -8,6 +8,11 @@ export type DirectIdResult =
   | { kind: 'deferred'; reason: 'busy' | 'offline' | 'provider'; message: string; retryAfter?: number };
 
 type CachedResult = Exclude<DirectIdResult, { kind: 'deferred' }>;
+const PLATFORM_LOOKUPS = {
+  netflix: { property: 'P1874', idColumn: 'netflixId' },
+  hotstar: { property: 'P11049', idColumn: 'hotstarId' },
+} as const;
+type WikidataPlatform = keyof typeof PLATFORM_LOOKUPS;
 interface SourceCache { expiresAt: number; result: CachedResult }
 interface TransportState {
   nextDispatchAt: number;
@@ -19,6 +24,7 @@ interface TransportState {
 }
 interface Job {
   key: string;
+  platformId: WikidataPlatform;
   titleId: string;
   demands: Set<() => boolean>;
   promise: Promise<DirectIdResult>;
@@ -46,17 +52,19 @@ function literal(value: unknown): string | undefined {
   return value.value;
 }
 
-function expectedColumns(head: unknown): boolean {
+function expectedColumns(head: unknown, columns: string[]): boolean {
   if (!object(head) || !Array.isArray(head.vars)) return false;
   const vars = head.vars;
-  return vars.length === 3 && new Set(vars).size === 3 && ['netflixId', 'item', 'imdbId'].every(name => vars.includes(name));
+  return vars.length === columns.length && columns.every(name => vars.includes(name));
 }
 
 /** A complete result set is needed: every distinct IMDb identity participates in ambiguity checks. */
-export function parseWikidataResponse(raw: unknown, requestedIds: string[], now: number): Map<string, CachedResult> {
+export function parseWikidataResponse(raw: unknown, requestedIds: string[], now: number, platformId: WikidataPlatform = 'netflix'): Map<string, CachedResult> {
+  const { idColumn } = PLATFORM_LOOKUPS[platformId];
+  const columns = [idColumn, 'item', 'imdbId'];
   if (!Number.isFinite(now) || requestedIds.length < 1 || requestedIds.length > 20 || !requestedIds.every(id => typeof id === 'string' && ID.test(id)))
     throw new LookupFailure('provider', 'The title mapping request was invalid.');
-  if (!object(raw) || !expectedColumns(raw.head) ||
+  if (!object(raw) || !expectedColumns(raw.head, columns) ||
     !object(raw.results) || !Array.isArray(raw.results.bindings) || raw.results.bindings.length > 1000 ||
     raw.truncated === true || raw.partial === true || raw.hasMore === true || raw.results.truncated === true ||
     raw.error !== undefined || raw.warning !== undefined || raw.warnings !== undefined)
@@ -64,15 +72,15 @@ export function parseWikidataResponse(raw: unknown, requestedIds: string[], now:
   const requested = new Set(requestedIds);
   const found = new Map<string, Map<string, Set<string>>>();
   for (const row of raw.results.bindings) {
-    if (!object(row) || Object.keys(row).some(key => !['netflixId', 'item', 'imdbId'].includes(key)))
+    if (!object(row) || Object.keys(row).some(key => !columns.includes(key)))
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
-    const netflixId = literal(row.netflixId), imdbId = literal(row.imdbId);
+    const titleId = literal(row[idColumn]), imdbId = literal(row.imdbId);
     const entity = object(row.item) && row.item.type === 'uri' && typeof row.item.value === 'string' ? row.item.value.match(ENTITY)?.[1] : undefined;
-    if (!netflixId || !ID.test(netflixId) || !requested.has(netflixId) || !imdbId || !IMDB.test(imdbId) || !entity)
+    if (!titleId || !ID.test(titleId) || !requested.has(titleId) || !imdbId || !IMDB.test(imdbId) || !entity)
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
-    const identities = found.get(netflixId) ?? new Map<string, Set<string>>();
+    const identities = found.get(titleId) ?? new Map<string, Set<string>>();
     const entities = identities.get(imdbId) ?? new Set<string>(); entities.add(entity);
-    identities.set(imdbId, entities); found.set(netflixId, identities);
+    identities.set(imdbId, entities); found.set(titleId, identities);
   }
   const result = new Map<string, CachedResult>();
   for (const id of requested) {
@@ -118,9 +126,10 @@ export class WikidataResolver {
     private readonly fetcher = fetch) {}
 
   async resolve(ref: PlatformTitleRef, demand: () => boolean): Promise<DirectIdResult> {
-    if (ref.platformId !== 'netflix') return { kind: 'missing' };
+    const { platformId } = ref;
+    if (platformId !== 'netflix' && platformId !== 'hotstar') return { kind: 'missing' };
     if (typeof ref.titleId !== 'string' || !ID.test(ref.titleId))
-      return deferred('provider', 'The Netflix title identity is invalid.');
+      return deferred('provider', 'The streaming title identity is invalid.');
     const key = sourceKey(ref);
     try {
       const cached = await this.repo.get<SourceCache>('resolutions', key);
@@ -134,7 +143,7 @@ export class WikidataResolver {
       if (this.pending.size >= 100) return deferred('busy', 'Automatic title matching is busy. Try again shortly.', Date.now() + 1000);
       let complete!: (result: DirectIdResult) => void;
       const promise = new Promise<DirectIdResult>(resolve => { complete = resolve; });
-      const job: Job = { key, titleId: ref.titleId, demands: new Set([demand]), promise, complete };
+      const job: Job = { key, platformId, titleId: ref.titleId, demands: new Set([demand]), promise, complete };
       this.pending.set(key, job); this.queue.push(job); this.schedule();
       return promise;
     } catch { return deferred('provider', 'Automatic title matching could not access local storage or settings.'); }
@@ -151,9 +160,15 @@ export class WikidataResolver {
     this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, delay);
   }
   private async flush(): Promise<void> {
-    if (this.running) return;
+    if (this.running || !this.queue.length) return;
     this.running = true;
-    const batch = this.queue.splice(0, 20);
+    const platformId = this.queue[0].platformId;
+    const batch: Job[] = [];
+    // Start with the oldest job's platform and keep other platforms queued for their own requests.
+    for (let index = 0; index < this.queue.length && batch.length < 20;) {
+      if (this.queue[index].platformId === platformId) batch.push(...this.queue.splice(index, 1));
+      else index++;
+    }
     try {
       const active: Job[] = [];
       for (const job of batch) {
@@ -161,7 +176,7 @@ export class WikidataResolver {
         else this.settle(job, deferred('busy', 'The title is no longer visible.'));
       }
       if (active.length) {
-        const result = await this.requestBatch(active);
+        const result = await this.requestBatch(platformId, active);
         for (const job of active) this.settle(job, result.get(job.titleId) ?? deferred('provider', 'The title mapping response was incomplete.'));
       }
     } catch {
@@ -200,7 +215,7 @@ export class WikidataResolver {
       return next.cooldownUntil || undefined;
     });
   }
-  private async requestBatch(jobs: Job[]): Promise<Map<string, DirectIdResult>> {
+  private async requestBatch(platformId: WikidataPlatform, jobs: Job[]): Promise<Map<string, DirectIdResult>> {
     const all = (result: DirectIdResult) => new Map(jobs.map(job => [job.titleId, result]));
     let lease: string | undefined;
     try {
@@ -220,8 +235,10 @@ export class WikidataResolver {
       }
       const ids = dispatch.map(job => job.titleId);
       const url = new URL('https://query.wikidata.org/sparql');
-      const query = 'PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?netflixId ?item ?imdbId WHERE { VALUES ?netflixId { ' +
-        ids.map(id => `"${id}"`).join(' ') + ' } ?item wdt:P1874 ?netflixId ; wdt:P345 ?imdbId . }';
+      const { property, idColumn } = PLATFORM_LOOKUPS[platformId];
+      const values = ids.map(id => `"${id}"`).join(' ');
+      const query = `PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?${idColumn} ?item ?imdbId WHERE { ` +
+        `VALUES ?${idColumn} { ${values} } ?item wdt:${property} ?${idColumn} ; wdt:P345 ?imdbId . }`;
       url.search = new URLSearchParams({ format: 'json', query }).toString();
       let response: Response;
       try {
@@ -250,7 +267,7 @@ export class WikidataResolver {
         if (error instanceof LookupFailure) throw error;
         throw new LookupFailure(offline() ? 'offline' : 'provider', 'The title mapping service returned invalid or interrupted data.');
       }
-      const now = Date.now(), parsed = parseWikidataResponse(raw, ids, now);
+      const now = Date.now(), parsed = parseWikidataResponse(raw, ids, now, platformId);
       await this.repo.transaction(['resolutions'], async tx => {
         for (const job of dispatch) {
           const result = parsed.get(job.titleId)!;

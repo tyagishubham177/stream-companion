@@ -1,14 +1,16 @@
 # Stream Companion
 
-A personal Chrome extension with generic streaming branding and a modular platform boundary. **V1 adds IMDb ratings and title matching to Netflix.** The data provider is OMDb; you supply your own key in extension Settings.
+A personal Chrome extension for **IMDb ratings and title marks on Netflix and JioHotstar**. Ratings use your own OMDb key. Marks work without one.
+
+**0.6.0 update:** **IMDb ratings** and **Mark as watched** are independent switches in the popup and Settings. Mark as watched enables Watched, Want to watch and Won’t watch; the other preferences are under Advanced settings. Both switches apply to both platforms. Your titles keeps Netflix and JioHotstar marks separate and links back to the source title.
 
 **0.5.0 update:** Your marks adds independent watched and watch-later/skip choices, a recovery library and artwork treatments. Settings independently toggles ratings, marks, watched shading, Won’t watch grayscale, automatic matching and local matching logs. Netflix support now includes modern/classic search, New & Popular and full title details. Correction-informed matching adds cast-backed series identities, same-name film disambiguation and verified translated-title lookup.
 
 **0.4.0 matching evidence:** Matching decisions and manual corrections now have a bounded local evidence log. Settings → Data & privacy lets you review, download or clear it. Confirmed search selections retain their result rank and the automatic checks that preceded them; nothing is uploaded or trained automatically.
 
-**Automatic matching:** visible cards and expanded hover previews resolve automatically. Direct Netflix-to-IMDb mappings are checked first; films without those links can now use Netflix’s public title, release year and movie type for a strict OMDb match. Edition and language-label variants can additionally use corroborated year, director and cast evidence. Opening each title is unnecessary. Corrections remain optional, and ambiguous matches remain unresolved.
+**Automatic matching:** supported visible cards and expanded previews use public platform IDs first. Film title, type and release year can support a strict OMDb match. Public cast on a title page can distinguish same-name series without treating a season date as the series start. Corrections remain optional, and ambiguous matches remain unresolved.
 
-The working name is independent of Netflix, IMDb and any future feature. Other streaming platforms are not implemented yet. This local release candidate has passed an initial live Netflix/OMDb check on Search and My List; broader catalogue acceptance remains open. See `docs/verification.md` for the exact evidence and limits.
+On JioHotstar India, the extension supports search results, linked cards in browsing rows, Continue Watching, expanded previews and title details. Some collapsed Home posters expose only a name and image; expand those cards to reveal their title ID and controls. Playback, clips without a whole-title identity, live sports and account pages are outside scope. See [verification](docs/verification.md) for the tested cases and limits.
 
 ## Repository and versions
 
@@ -34,16 +36,16 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Browser fixtures use a disposable profile, fake titles and a fake key. All HTTP destinations except routed fixtures are blocked, and provider DNS is redirected to loopback as an additional guard. No real API key or Netflix session is used by the automated tests.
+Browser fixtures use disposable profiles, fake titles and fake keys. HTTP destinations outside the routed fixtures are blocked, and provider DNS is redirected to loopback as an additional guard. Automated tests do not use your streaming sessions or key.
 
 ## Install locally
 
 1. Build with `npm run build`.
 2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `D:\Coding Projects\chrome extensions\stream-companion\dist`.
 3. In Stream Companion Settings, obtain/activate an [OMDb key](https://www.omdbapi.com/apikey.aspx), then **Save & test**. Enter it only in Settings.
-4. Reload a Netflix browse tab. Click an IMDb badge to view details or choose the correct movie/series. Confirmed matches persist in this Chrome profile.
+4. Reload a Netflix or JioHotstar browse tab. Use the popup’s two switches, then use the IMDb badge for rating details or Mark for your watch decisions.
 
-No server runs in production. `npm run dev` rebuilds TypeScript while editing; changes to public HTML/CSS need a fresh build. Reload the extension in `chrome://extensions` and reload Netflix after updates.
+No server runs in production. `npm run dev` rebuilds TypeScript while editing; changes to public HTML/CSS need a fresh build. Reload the extension in `chrome://extensions` and refresh streaming tabs after updates.
 
 To make a local ZIP:
 
@@ -51,9 +53,9 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.5.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+Output: `releases\stream-companion-0.6.0.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
-For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow Netflix public-title-page access if Chrome requests it, then reload Netflix. Your saved key, corrections, cache and usage accounting remain. See `docs/Automatic_Ratings_v0_2.md` for the updated behavior and privacy details.
+For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow JioHotstar access if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections, cache and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 
 ## Verify in your account
 
@@ -76,7 +78,7 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 
 ## Structure
 
-- `src/platforms`: generic adapter contract and isolated Netflix implementation.
+- `src/platforms`: shared adapter contract and separate Netflix and JioHotstar adapters.
 - `src/features/ratings`: badge presentation and retry policy.
 - `src/content`: card lifecycle, visibility and accessible overlay.
 - `src/background`: authorization, resolver, transactional storage and shared request scheduler.
@@ -90,6 +92,6 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 
 Mappings use platform + title identity. Rating caches distinguish external identity, source and provider. New platforms do not inherit another platform's corrections. Add an adapter and exact host permissions when implementing the next supported service; no runtime plugin framework is required.
 
-The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. No production backend, telemetry, login, private Netflix API or remote executable code is included. Ratings are attributed to IMDb via OMDb; automatic source IDs come from Wikidata, which receives public Netflix IDs but never your API key. Public Netflix film metadata is requested without account cookies or the OMDb key, and cached for 30 days. Public distribution needs provider-rights and product-name checks.
+The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. The extension uses no private streaming APIs, account credentials, telemetry or remote executable code. Wikidata receives public platform IDs; OMDb receives title evidence or an IMDb ID and the API key. JioHotstar metadata comes from the current page. The existing Netflix public metadata fallback uses cookie-free requests and a 30-day cache. Public distribution needs provider-rights and product-name checks.
 
-After reloading or updating the extension in Chrome, refresh the Netflix tab too. A disconnected script stops and offers **Refresh Netflix**; it does not reload a playing page automatically. Chrome may retain older warning entries under Errors until you clear them.
+After reloading or updating the extension in Chrome, refresh each streaming tab. A disconnected script stops and offers a refresh button on supported browsing pages. Chrome may retain older warning entries under Errors until you clear them.

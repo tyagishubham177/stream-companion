@@ -62,7 +62,7 @@ export class Overlay {
 
   createBadge(container: HTMLElement, title: string, open: (button: HTMLButtonElement) => void): BadgeMount {
     const host = element('div'); host.dataset.scRoot = 'badge';
-    host.dataset.scRenderer = 'native-0.5.0';
+    host.dataset.scRenderer = 'native-0.6.0';
     const root = host.attachShadow({ mode: 'open' });
     const style = element('style'); style.textContent = badgeStyles; root.append(style);
     const releasePositioning = acquirePositioning(container);
@@ -138,6 +138,10 @@ export class Overlay {
               ? 'Netflix uses an alternate edition or language title. Matched to IMDb’s film using release year, director and cast.'
               : 'Matched using Netflix’s public release year, director and cast to distinguish same-name films.'
           : 'Matched automatically using Netflix’s public film title, release year and type', 'meta'));
+      if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'hotstar')
+        panel.append(element('p', state.matchBasis === 'credits'
+          ? 'Matched using the title and credits shown by JioHotstar.'
+          : 'Matched using JioHotstar’s film title and release year.', 'meta'));
       panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
       panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
     }

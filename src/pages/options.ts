@@ -1,10 +1,12 @@
+import { platformLabel } from '../platforms/links';
 import { rpc } from '../shared/client';
 import type { AppStatus, SavedMatch } from '../shared/contracts';
-import { action, element, imdbLink, message, notice } from './ui';
+import { action, bindPrimaryFeatures, element, imdbLink, message, notice } from './ui';
 
 let currentStatus: AppStatus | undefined;
 let matchingReviewGeneration = 0;
-const featureKeys = ['ratingsEnabled','marksEnabled','shadeWatched','fadePassed','automaticMatching','matchingLogEnabled'] as const;
+const advancedKeys = ['shadeWatched', 'fadePassed', 'automaticMatching', 'matchingLogEnabled'] as const;
+const renderPrimaryFeatures = bindPrimaryFeatures();
 const keyInput = element<HTMLInputElement>('api-key');
 const enabled = element<HTMLInputElement>('enabled');
 const cacheOnly = element<HTMLInputElement>('cache-only');
@@ -14,10 +16,12 @@ function renderStatus(status: AppStatus, updatePreferences = false): void {
   currentStatus = status;
   if (updatePreferences) {
     enabled.checked = status.settings.enabled;
-    for (const key of featureKeys) element<HTMLInputElement>(key).checked = status.settings[key] !== false;
+    for (const key of advancedKeys) element<HTMLInputElement>(key).checked = status.settings[key] !== false;
     cacheOnly.checked = status.settings.cacheOnly;
     corner.value = status.settings.corner;
   }
+  renderPrimaryFeatures(status.settings);
+  element('features-paused').hidden = status.settings.enabled;
   const provider = element('provider-label');
   provider.textContent = status.provider.kind === 'ready' ? 'Configured' : status.provider.kind === 'setup' ? 'Setup needed' : 'Lookups paused';
   provider.dataset.tone = status.provider.kind;
@@ -51,7 +55,7 @@ async function refreshMatches(): Promise<void> {
     title.textContent = match.displayTitle;
     const context = document.createElement('p');
     context.className = 'small muted';
-    context.textContent = `${match.ref.platformId === 'netflix' ? 'Netflix' : match.ref.platformId} · ${match.ref.titleId}`;
+    context.textContent = `${platformLabel(match.ref.platformId)} · ${match.ref.titleId}`;
     copy.append(title, context, imdbLink(match.imdbId));
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -119,10 +123,15 @@ element<HTMLFormElement>('preferences-form').addEventListener('submit', event =>
   void action(element<HTMLButtonElement>('save-preferences'), async () => {
     await rpc<unknown>({
       type: 'UPDATE_SETTINGS',
-      settings: { enabled: enabled.checked, cacheOnly: cacheOnly.checked, corner: corner.value === 'top-left' ? 'top-left' : 'top-right', ...Object.fromEntries(featureKeys.map(key => [key, element<HTMLInputElement>(key).checked])) },
+      settings: {
+        enabled: enabled.checked,
+        cacheOnly: cacheOnly.checked,
+        corner: corner.value === 'top-left' ? 'top-left' : 'top-right',
+        ...Object.fromEntries(advancedKeys.map(key => [key, element<HTMLInputElement>(key).checked])),
+      },
     });
     await refreshStatus(true);
-    notice('Browsing preferences saved.');
+    notice('Advanced preferences saved.');
   });
 });
 
@@ -194,7 +203,7 @@ element<HTMLButtonElement>('clear-matching-log').addEventListener('click', () =>
     element('matching-log-review').hidden = true;
     element('matching-log-summary').textContent = 'Matching log cleared. New matching activity will create new records.';
     element<HTMLButtonElement>('download-matching-log').disabled = true;
-    notice('Matching log cleared. Open a new correction from Netflix if needed.');
+    notice('Matching log cleared. Open a new correction from a streaming title if needed.');
   });
 });
 

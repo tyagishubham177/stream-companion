@@ -15,6 +15,10 @@ function binding(netflixId = '70136129', imdbId = 'tt0758790', entity = 'Q326731
 function response(bindings: unknown[] = [binding()]) {
   return { head: { vars: ['netflixId', 'item', 'imdbId'] }, results: { bindings } };
 }
+function hotstarResponse(id = '8549') {
+  const { netflixId, ...rest } = binding(id, 'tt1442437', 'Q184376');
+  return { head: { vars: ['hotstarId', 'item', 'imdbId'] }, results: { bindings: [{ hotstarId: netflixId, ...rest }] } };
+}
 function requestIds(input: Parameters<typeof fetch>[0]): string[] {
   return [...new URL(String(input)).searchParams.get('query')!.matchAll(/"(\d+)"/g)].map(match => match[1]);
 }
@@ -67,9 +71,51 @@ describe('complete direct-ID response validation', () => {
     expect(() => parseWikidataResponse(response(Array.from({ length: 1001 }, () => binding())), ['70136129'], now)).toThrow();
     expect(() => parseWikidataResponse(response(), ['1" } SERVICE <https://evil.test>'], now)).toThrow();
   });
+  it('rejects wrong-platform or unrequested Hotstar bindings', () => {
+    expect(() => parseWikidataResponse(response([binding('8549')]), ['8549'], now, 'hotstar')).toThrow();
+    expect(() => parseWikidataResponse(hotstarResponse('999'), ['8549'], now, 'hotstar')).toThrow();
+    expect(() => parseWikidataResponse(hotstarResponse(), ['8549'], now)).toThrow();
+  });
 });
 
 describe('visible-demand batching and source caching', () => {
+  it('isolates identical Netflix and Hotstar IDs in queries, pending work and durable cache', async () => {
+    const repo = repository();
+    const netflix = ref('8549');
+    const hotstar = { platformId: 'hotstar', titleId: '8549' };
+    const fetcher = vi.fn<typeof fetch>(async input => {
+      const query = new URL(String(input)).searchParams.get('query')!;
+      return query.includes('P11049')
+        ? new Response(JSON.stringify(hotstarResponse()))
+        : dynamicResponse(input);
+    });
+    const resolver = new WikidataResolver(repo, eligibility, fetcher);
+    const [netflixResult, hotstarResult, duplicate] = await Promise.all([
+      resolver.resolve(netflix, () => true),
+      resolver.resolve(hotstar, () => true),
+      resolver.resolve(hotstar, () => true),
+    ]);
+    expect(netflixResult).toMatchObject({ kind: 'matched', imdbId: 'tt0758790' });
+    expect(hotstarResult).toMatchObject({ kind: 'matched', imdbId: 'tt1442437' });
+    expect(duplicate).toEqual(hotstarResult);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const queries = fetcher.mock.calls.map(([input]) => {
+      expect(requestIds(input)).toEqual(['8549']);
+      return new URL(String(input)).searchParams.get('query')!;
+    });
+    const hotstarQuery = queries.find(query => query.includes('P11049'))!;
+    expect(hotstarQuery).toContain('VALUES ?hotstarId');
+    expect(hotstarQuery).not.toMatch(/P1874|netflixId/);
+    const netflixQuery = queries.find(query => query.includes('P1874'))!;
+    expect(netflixQuery).toContain('VALUES ?netflixId');
+    expect(netflixQuery).not.toMatch(/P11049|hotstarId/);
+    expect(await repo.get('resolutions', cacheKey('8549'))).toMatchObject({ result: netflixResult });
+    expect(await repo.get('resolutions', JSON.stringify(['wikidata', 'hotstar', '8549']))).toMatchObject({ result: hotstarResult });
+    const restarted = new WikidataResolver(repo, eligibility, fetcher);
+    expect(await restarted.resolve(netflix, () => true)).toEqual(netflixResult);
+    expect(await restarted.resolve(hotstar, () => true)).toEqual(hotstarResult);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it('coalesces IDs in a fixed-origin request and never includes credentials', async () => {
     const repo = repository();
     const fetcher = vi.fn<typeof fetch>(async input => dynamicResponse(input));

@@ -29,7 +29,6 @@ function preservePointerClick(button: HTMLButtonElement): void {
     if (cancelled) { event.preventDefault(); event.stopImmediatePropagation(); event.stopPropagation(); }
   }, true);
 }
-const EXPANDED = '[data-uia="modal-motion-container-MINI_MODAL"],[data-uia="modal-motion-container-DETAIL_MODAL"]';
 export interface MarkMount {
   host: HTMLDivElement; button: HTMLButtonElement; container: HTMLElement;
   update(mark: TitleMark | undefined, observation: TitleObservation, ratings: boolean, corner: 'top-left' | 'top-right'): void;
@@ -39,7 +38,7 @@ export interface MarkMount {
 }
 
 /** Card-relative control and a separately owned, passive artwork effect. */
-export function mountMark(container: HTMLElement, open: (button: HTMLButtonElement) => void): MarkMount {
+export function mountMark(container: HTMLElement, open: (button: HTMLButtonElement) => void, expanded = false): MarkMount {
   const releasePosition = acquirePositioning(container);
   const host = element('div'); host.dataset.scRoot = 'marks';
   const root = host.attachShadow({ mode: 'open' });
@@ -72,7 +71,6 @@ export function mountMark(container: HTMLElement, open: (button: HTMLButtonEleme
   return {
     host, button, container,
     update(mark, observation, ratings, corner) {
-      const expanded = !!container.closest(EXPANDED);
       const nextKey = JSON.stringify([mark?.revision, mark?.watched, mark?.plan, observation.displayTitle, ratings, corner, expanded]);
       if (nextKey === renderKey) return;
       renderKey = nextKey;
@@ -132,7 +130,7 @@ export function mountMark(container: HTMLElement, open: (button: HTMLButtonEleme
 
 interface MenuModel {
   observation: TitleObservation; mark?: TitleMark; anchor: HTMLButtonElement;
-  container: HTMLElement;
+  owner?: HTMLElement;
   current(): boolean; save(patch: MarkPatch): Promise<void>;
 }
 export class MarksView {
@@ -166,7 +164,7 @@ export class MarksView {
   validate(): void { if (this.model && !this.model.current()) this.close(false); }
   open(model: MenuModel): void {
     this.close(false); claimPanel(this, () => this.close(false)); this.model = model;
-    const owner = model.container.closest<HTMLElement>(EXPANDED);
+    const owner = model.owner;
     const menuHost = element('div'); this.menuHost = menuHost; menuHost.dataset.scRoot = 'mark-menu';
     menuHost.dataset.local = String(!!owner);
     const menuRoot = menuHost.attachShadow({ mode: 'open' });
@@ -225,7 +223,7 @@ export class MarksView {
       }
     });
     model.anchor.setAttribute('aria-expanded', 'true'); menuRoot.append(menu);
-    this.positionMenu(menu, menuHost, model.anchor, owner ?? undefined);
+    this.positionMenu(menu, menuHost, model.anchor, owner);
     menu.querySelector<HTMLButtonElement>('.choice')?.focus({ preventScroll: true });
   }
   private positionMenu(menu: HTMLElement, host: HTMLElement, button: HTMLElement, owner?: HTMLElement): void {

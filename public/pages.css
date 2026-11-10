@@ -6,3 +6,20 @@
 
 .matching-log-section { margin-top: 28px; }
 .matching-log-preview { max-height: 360px; overflow: auto; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+
+.feature-setting { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0; padding: 16px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.feature-setting strong { display: block; font-size: .97rem; }
+.feature-setting .muted { display: block; margin-top: 4px; font-weight: 400; }
+.feature-setting .switch input { width: 40px; height: 24px; margin: 0; cursor: pointer; }
+.feature-setting .switch-track { pointer-events: none; }
+.feature-note { margin: 14px 0 20px; }
+.feature-note a { margin-left: 8px; }
+.advanced-settings { padding: 16px 0 0; border-top: 1px solid var(--line); }
+.advanced-settings summary, .popup-details summary { cursor: pointer; font-weight: 600; }
+.advanced-settings summary { font-size: .9rem; }
+.popup-details summary, .popup-footer a { font-size: .8rem; }
+.popup-shell .feature-setting { padding: 13px 0; }
+.popup-shell .feature-setting strong { font-size: .9rem; }
+#features-paused { margin: 0 0 12px; }
+#source-link:not(:empty) { margin-top: 10px; font-size: .85rem; }
+@media(max-width:480px) { .supported-platforms { display: none; } }

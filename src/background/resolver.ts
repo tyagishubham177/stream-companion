@@ -1,4 +1,4 @@
-import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState, type Candidate, type SearchResult } from '../shared/contracts';
+import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState, type Candidate, type SearchResult, type PlatformMetadataSource } from '../shared/contracts';
 import { contradicts, hasStrongEvidence, normaliseTitle, observationFingerprint, supportedCandidate, usableYear } from '../shared/identity';
 import { corroboratesEdition, corroboratesSeriesCast, editionTitleMatches, filmSearchAlias, plainTranslationAlias, validateFilmCredits } from '../shared/edition';
 import { ratingCacheState } from '../shared/freshness';
@@ -125,6 +125,14 @@ export class Resolver {
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     let evidence = o;
     let metadataMatch: Extract<NetflixMetadataResult, { kind: 'matched' }> | undefined;
+    // Hotstar publishes credits in the currently open title page. Unlike the
+    // Netflix fallback this uses the bound DOM evidence, with no source fetch.
+    const credits = o.ref.platformId === 'hotstar' ? validateFilmCredits(o.credits) : undefined;
+    if (credits && o.mediaType === 'series' && corroboratesSeriesCast(credits, credits)) {
+      metadataMatch = { kind: 'matched', mediaType: 'series', title: o.displayTitle, checkedAt: Date.now(), credits };
+    } else if (credits && o.mediaType === 'movie' && usableYear(o) !== undefined) {
+      metadataMatch = { kind: 'matched', mediaType: 'movie', title: o.displayTitle, year: usableYear(o)!, checkedAt: Date.now(), credits };
+    }
     if (this.directIds) {
       const direct = directSnapshot ?? await this.directIds.resolve(o.ref, demand);
       steps.push({ stage: 'wikidata', outcome: direct.kind === 'deferred' ? `deferred:${direct.reason}` : direct.kind });
@@ -165,7 +173,7 @@ export class Resolver {
           return cachedOrDeferred(undefined, 'automatic', error);
         }
       }
-      if ((!hasStrongEvidence(o) || metadataChanged) && direct.kind === 'missing' && this.metadata) {
+      if (o.ref.platformId === 'netflix' && (!hasStrongEvidence(o) || metadataChanged) && direct.kind === 'missing' && this.metadata) {
         const result = metadataSnapshot ?? await this.metadata.resolve(o.ref, demand);
         steps.push({ stage: 'netflix_metadata', outcome: result.kind === 'deferred' ? `deferred:${result.reason}` : result.kind });
         if (result.kind === 'deferred') return { ...result };
@@ -242,15 +250,16 @@ export class Resolver {
     const accept = async (record: RatingRecord, creditMatch: boolean): Promise<LookupState> => {
       if (mapping?.rejected.includes(record.subject.id) || contradicts(o, record)) return await save({ kind: 'needs_match', reason: 'contradiction' });
       if (creditMatch) evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
+      const source = metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
       const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(record.subject.id)) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
           evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
-          ...(metadataMatch ? { provenance: { source: 'netflix', checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
+          ...(metadataMatch && source ? { provenance: { source, checkedAt: metadataMatch.checkedAt, ...(creditMatch ? { matchBasis: 'credits' } : {}) } } : {}) } satisfies Mapping);
         return true;
       });
-      if (accepted) return stateFromRecord(record, 'automatic', metadataMatch ? 'netflix' : undefined, creditMatch ? 'credits' : undefined);
+      if (accepted) return stateFromRecord(record, 'automatic', source, creditMatch ? 'credits' : undefined);
       const winner = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
       return winner?.method === 'automatic' && winner.subject?.id === record.subject.id
         ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
@@ -306,7 +315,7 @@ export class Resolver {
           steps.push({ stage: 'edition_candidates', outcome: `${candidates.length}_eligible_require_credits` });
         }
         if (candidates.length === 1) {
-          if (!corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
+          if (o.ref.platformId === 'netflix' && !corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
             const upgrade = await this.metadata.resolve(o.ref, demand, true);
             if (upgrade.kind === 'deferred') return upgrade;
             if (upgrade.kind !== 'matched' || upgrade.year !== metadataMatch.year ||
@@ -349,7 +358,7 @@ export function candidateChecks(evidence: TitleObservation, candidate: Candidate
   else if (Number(candidate.year.slice(0, 4)) !== usableYear(evidence)) checks.push('year_mismatch');
   return checks.length ? checks : ['supported'];
 }
-export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | 'netflix', matchBasis?: 'credits'): LookupState {
+export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | PlatformMetadataSource, matchBasis?: 'credits'): LookupState {
   const source = { ...(identitySource ? { identitySource } : {}), ...(matchBasis ? { matchBasis } : {}) };
   if (record.score === null) return { kind: 'unrated', record, ...source };
   return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...source };

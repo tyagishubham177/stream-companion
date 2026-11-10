@@ -1,7 +1,8 @@
+import { platformLabel } from '../platforms/links';
 import { rpc } from '../shared/client';
 import { titleKey } from '../shared/contracts';
 import { hasMarks, markLabel, type MarkMutation, type MarkPatch, type MarksSnapshot, type TitleMark, type WatchPlan } from '../shared/marks';
-import { dateLabel, element, message, notice } from './ui';
+import { dateLabel, element, message, notice, streamingLink } from './ui';
 
 type Filter = 'all' | 'want' | 'watched' | 'pass';
 const names: Record<Filter, string> = { all: 'All titles', want: 'Want to watch', watched: 'Watched', pass: 'Won’t watch' };
@@ -34,10 +35,10 @@ function render(): void {
     const copy = document.createElement('div'); copy.className = 'titles-copy';
     const title = document.createElement('h2'); title.textContent = mark.observation.displayTitle;
     const summary = document.createElement('p'); summary.className = 'small muted';
-    summary.textContent = `${markLabel(mark)} · Changed ${dateLabel(mark.changedAt)}`;
-    const link = document.createElement('a'); link.href = `https://www.netflix.com/title/${encodeURIComponent(mark.observation.ref.titleId)}`;
-    link.textContent = 'Open on Netflix ↗'; link.target = '_blank'; link.rel = 'noopener noreferrer';
-    copy.append(title, summary, link);
+    summary.textContent = `${platformLabel(mark.observation.ref.platformId)} · ${markLabel(mark)} · Changed ${dateLabel(mark.changedAt)}`;
+    copy.append(title, summary);
+    const link = streamingLink(mark.observation);
+    if (link) copy.append(link);
     const controls = document.createElement('div'); controls.className = 'title-controls';
     const seenLabel = document.createElement('label'); seenLabel.className = 'seen-control';
     const seen = document.createElement('input'); seen.type = 'checkbox'; seen.checked = mark.watched;
@@ -60,7 +61,9 @@ function render(): void {
   }
   element('empty').hidden = matches.length > 0;
   element('empty-heading').textContent = snapshot.marks.length ? 'No titles match this view' : 'Your titles will appear here';
-  element('empty-detail').textContent = snapshot.marks.length ? 'Try another name or search across all your titles.' : 'On Netflix, use Mark on a title to remember that you have watched it, want to watch it or won’t watch it.';
+  element('empty-detail').textContent = snapshot.marks.length
+    ? 'Try another name or search across all your titles.'
+    : 'Use Mark on a Netflix or JioHotstar title to record whether you have watched it, want to watch it or won’t watch it.';
   element('search-all').hidden = filter === 'all' || snapshot.marks.length === 0;
   if (focusedRef && focusedControl) {
     const row = [...list.querySelectorAll<HTMLElement>('li[data-ref]')].find(item => item.dataset.ref === focusedRef);

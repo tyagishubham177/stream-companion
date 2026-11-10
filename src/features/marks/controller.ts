@@ -63,7 +63,7 @@ export class MarksController {
     } catch (error) {
       if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       if (this.retries < 3 && !this.stopped) this.retry = setTimeout(() => void this.loadStatus(), [1000, 3000, 7000][this.retries++]);
-      else this.view?.notify('Your marks could not connect. Refresh Netflix and try again.');
+      else this.view?.notify('Your marks could not connect. Refresh the page and try again.');
     }
   }
   private reconcile(): void {
@@ -85,7 +85,7 @@ export class MarksController {
         this.schedule();
       });
       this.observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true,
-        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'hidden', 'alt'] });
+        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'data-testid', 'hidden', 'alt'] });
       this.scan();
     }
   }
@@ -108,7 +108,7 @@ export class MarksController {
       if (this.tiles.has(tile)) continue;
       const observation = this.adapter.observeTitle(tile), container = this.adapter.badgeContainer(tile);
       if (!observation || !container) continue;
-      const mount = mountMark(container, () => this.open(entry));
+      const mount = mountMark(container, () => this.open(entry), !!this.adapter.expandedOwner?.(tile));
       const entry: Tile = { tile, observation, fingerprint: observationFingerprint(observation), mount };
       this.tiles.set(tile, entry);
     }
@@ -141,7 +141,7 @@ export class MarksController {
       }).catch(error => {
         if (error instanceof ExtensionContextInvalidatedError) this.disconnect();
         else if (generation === this.generation) {
-          if (Date.now() >= this.readPauseUntil) this.view?.notify('Your saved marks could not be loaded. Try refreshing Netflix.');
+          if (Date.now() >= this.readPauseUntil) this.view?.notify('Your saved marks could not be loaded. Try refreshing the page.');
           this.readPauseUntil = Date.now() + 5000;
         }
       }).finally(() => { for (const [key] of batch) if (this.pending.get(key) === readId) this.pending.delete(key); });
@@ -156,13 +156,13 @@ export class MarksController {
     if (entry.mount.button.hidden !== obscured) entry.mount.button.hidden = obscured;
     const pending = !this.known.has(titleKey(entry.observation.ref));
     if (entry.mount.button.disabled !== pending) entry.mount.button.disabled = pending;
-    const expanded = entry.tile.matches('[data-uia="modal-motion-container-MINI_MODAL"],[data-uia="modal-motion-container-DETAIL_MODAL"]');
+    const expanded = !!this.adapter.expandedOwner?.(entry.tile);
     const mode = mark?.plan === 'pass' && settings.fadePassed !== false ? 'pass' : mark?.watched && settings.shadeWatched !== false && !expanded ? 'watched' : null;
     entry.mount.effect(this.adapter.artworkElement?.(entry.tile) ?? null, mode);
   }
   private open(entry: Tile): void {
     if (!this.current(entry) || !this.view || !this.known.has(titleKey(entry.observation.ref))) return;
-    this.view.open({ observation: entry.observation, mark: this.records.get(titleKey(entry.observation.ref)), anchor: entry.mount.button, container: entry.mount.container,
+    this.view.open({ observation: entry.observation, mark: this.records.get(titleKey(entry.observation.ref)), anchor: entry.mount.button, owner: this.adapter?.expandedOwner?.(entry.tile),
       current: () => this.current(entry), save: patch => this.save(entry, patch) });
   }
   private apply(result: MarkMutation): void {

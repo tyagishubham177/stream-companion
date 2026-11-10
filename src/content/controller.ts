@@ -189,7 +189,7 @@ export class ContentController {
     });
     this.mutation.observe(document.documentElement, {
       subtree: true, childList: true, attributes: true, characterData: true,
-      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'alt'],
+      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'data-testid', 'alt'],
     });
     this.scan();
   }
@@ -433,7 +433,7 @@ export class ContentController {
   private stats(): PageStats {
     const all = [...this.tiles.values()];
     return {
-      platformId: this.adapter?.id ?? 'netflix', supported: !!this.adapter && all.length > 0,
+      platformId: this.adapter?.id ?? (location.hostname === 'www.hotstar.com' ? 'hotstar' : 'netflix'), supported: !!this.adapter,
       tiles: all.length, rated: all.filter(t => t.state?.kind === 'rated').length,
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,
       cached: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,

@@ -1,5 +1,15 @@
 # Stream Companion v1 verification
 
+## JioHotstar and primary feature switches (0.6.0)
+
+Typecheck, build, 564 unit tests and all 31 browser tests passed. Three new disposable-profile MV3 cases verify ratings and marks on JioHotstar fixtures, independent Settings and popup switches, marks without an OMDb key, Save and Undo, canonical library links, same-number title isolation across Netflix and Hotstar, cached detail ratings and playback teardown. They also verify unlinked posters and clips receive no controls, and Continue Watching uses the series ID rather than the episode ID. The isolated settings smoke check included a 320px viewport. The ZIP readback confirms 18 files, `storage` as the only ordinary permission, and the JioHotstar India content-script scope.
+
+Before implementation, live JioHotstar DOM inspection established the separate shapes for featured titles, search cards, Continue Watching, expanded previews and detail heroes. Search and preview links exposed whole-work IDs. Some collapsed Home posters exposed only a name and artwork; those receive controls once their preview supplies a stable ID. A series displayed its final-season year, so the adapter uses no series year. Public detail metadata supplied bound film year and cast. This inspection verified selectors and source evidence; the installed 0.6.0 extension still needs a live reload and retest.
+
+The provider uses [Wikidata's JioHotstar ID property](https://www.wikidata.org/wiki/Property:P11049) in a separate batch namespace with shared transport limits. Hotstar film and series fallback tests verify exact film year/type matching and three-actor corroboration, and reject conflicting cast. The fixture suite does not establish live rating coverage across the JioHotstar catalogue.
+
+## Earlier verification (0.5.0 and below)
+
 Verified on 5 November 2026 with Node.js 24.14.0, Windows PowerShell, TypeScript 5.9 and Playwright Chromium 156.0.8078.4. Current built extension version: 0.5.0. Version 0.5.0 verification uses disposable synthetic MV3/browser profiles; installed live Netflix evidence is labelled separately below. Live 0.3.0 film fallback and 12-query baseline audit are verified below; installed edition/credit fallback has passed the live repeat. Earlier installed 0.2/0.2.2 evidence remains labelled below.
 
 ## Results
