@@ -8,6 +8,8 @@ On the installed 0.6.1 build, the live Explore Peacock Home row showed Suits, Fa
 
 Typecheck, build, 642 unit tests and all 34 browser scenarios passed. The real MV3 fixture with synthetic provider data verified that an unseen Home poster and its duplicate get a rating before hover with one search and one detail call; a same-title remake pair stays blank; the cache survives a reload; and recycled artwork drops the old badge.
 
+An installed 0.6.2 check distinguished fresh requests from earlier hover results. On Movies, the initial sample at 20:43:54 IST showed Disclosure Day with a name, type and artwork but no link or badge. With no expanded preview, it gained `☆ IMDb 6.4`; the extension panel reported `Possible IMDb match by title and type` and a fetch at 20:43:55. Too Big to Fail later showed `☆ IMDb 7.2` fetched at 20:44:13 during the same check. Seven of twelve ordinary posters in the later viewport still had no rating. A separate TV sample settled at six numeric ratings out of eight cards, but that count mixes fresh and cached results and does not establish a cold hit rate. No browser caches or marks were cleared for this audit.
+
 ## JioHotstar and primary feature switches (0.6.0–0.6.1)
 
 Disposable-profile Hotstar MV3 cases cover independent Settings and popup switches, marks without a key, Save and Undo, canonical library links, same-number title isolation across platforms, cached detail ratings and playback teardown. They also cover the series ID on Continue Watching and explicit native IMDb scores without provider calls. The isolated settings smoke check included a 320px viewport. The ZIP contains 18 files, `storage` as the only ordinary permission, and the JioHotstar India content-script scope.
