@@ -190,12 +190,13 @@ export class ContentController {
     });
     this.mutation.observe(document.documentElement, {
       subtree: true, childList: true, attributes: true, characterData: true,
-      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'data-testid', 'alt'],
+      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'data-testid', 'alt',
+        ...(this.adapter?.id === 'hotstar' ? ['src', 'srcset'] : [])],
     });
     this.scan();
   }
 
-  private scheduleScan(): void {
+  scheduleScan(): void {
     if (!this.overlay || this.scanTimer) return;
     this.scanTimer = setTimeout(() => { this.scanTimer = undefined; this.scan(); }, 100);
   }

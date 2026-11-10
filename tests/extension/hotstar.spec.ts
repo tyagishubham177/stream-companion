@@ -18,10 +18,14 @@ const hoverTile = `<div id="preview" data-testid="tray-card-hover"><div data-tes
   <div data-testid="card-hover-title-cutout"><img src="${poster}" alt="Fixture Preview"></div><span data-testid="textTag">2020</span>
   <a data-testid="link" href="${hoverPath}/watch">Play preview</a></div></div>`;
 const nativeScoreTile = `<div id="native-score" data-testid="action"><a data-testid="link" href="${nativeScorePath}">${image('Fixture Native Score')}
-  <span class="native-score" data-testid="textTag">IMDb 7.8</span><span data-testid="textTag" hidden>IMDb 9.9</span></a></div>`;
+  <div class="native-score" aria-label="Trending, IMDb 7.8"><span aria-hidden="true"><span data-testid="textTag">IMDb 7.8</span>
+    <span data-testid="textTag">IMDb 9.9</span></span></div></a></div>`;
 const pairedImage = (asset: string) => `https://img10.hotstar.com/image/upload/f_auto/sources/r1/cms/prod/7001/${asset}.jpg`;
-const pairedPoster = (id: string, asset: string) => `<div id="${id}" data-testid="tray-card-default"><div data-testid="action" aria-label="Fixture Paired Show, Show">
-  <span data-testid="hs-image"><img src="${pairedImage(asset)}" alt="Fixture Paired Show"></span></div></div>`;
+const pairedPoster = (id: string, asset: string, title = 'Fixture Paired Show') => `<div id="${id}" data-testid="tray-card-default"><div data-testid="action" aria-label="${title}, Show">
+  <span data-testid="hs-image"><img src="${pairedImage(asset)}" alt="${title}"></span></div></div>`;
+const verifiedAsset = 'https://img10.hotstar.com/image/upload/f_auto/sources/r1/cms/prod/7001/617539-v';
+const verifiedRow = pairedPoster('verified-poster', '617539-v', 'Modern Family').replace(pairedImage('617539-v'), verifiedAsset) +
+  pairedPoster('different-poster', 'fixture-paired-b', 'Modern Family');
 const tvRow = `<div id="tv-row"><div id="tv-posters">${pairedPoster('paired-poster', 'fixture-paired-a')}${pairedPoster('neighbor-poster', 'fixture-paired-b')}</div>
   <div id="tv-hover-owner" role="button" hidden><div id="tv-preview" data-testid="tray-card-hover"><div data-testid="card-hover-container">
   ${image('Fixture Paired Show artwork')}<div data-testid="card-hover-title-cutout"><img src="${poster}" alt="Fixture Paired Show"></div>
@@ -62,7 +66,7 @@ function document(body: string) {
   </script>`;
 }
 
-const hotstarIds: Record<string, string> = { '9101': 'tt9100101', '9102': 'tt9100102', '9103': 'tt9100103', '9105': 'tt9100105', '9106': 'tt9100106', '9912': 'tt9100999' };
+const hotstarIds: Record<string, string> = { '9101': 'tt9100101', '9102': 'tt9100102', '9103': 'tt9100103', '9105': 'tt9100105', '9106': 'tt9100106', '9912': 'tt9100999', '8549': 'tt9100107' };
 const netflixIds: Record<string, string> = { '9101': 'tt9100201' };
 const ratings: Record<string, { title: string; type: string; score: string }> = {
   tt0133093: { title: 'Connection fixture', type: 'movie', score: '8.0' },
@@ -71,6 +75,7 @@ const ratings: Record<string, { title: string; type: string; score: string }> = 
   tt9100103: { title: 'Fixture Preview', type: 'movie', score: '8.3' },
   tt9100105: { title: 'Fixture Native Score', type: 'movie', score: '7.1' },
   tt9100106: { title: 'Fixture Paired Show', type: 'series', score: '8.4' },
+  tt9100107: { title: 'Modern Family', type: 'series', score: '8.5' },
   tt9100201: { title: 'Fixture Netflix Film', type: 'movie', score: '7.4' },
 };
 let context: BrowserContext;
@@ -120,11 +125,12 @@ test.beforeAll(async ({}, info) => {
       return route.fulfill({ json: { Response: 'True', Title: entry.title, Year: '2020', Type: entry.type,
         imdbID: id, imdbRating: entry.score, imdbVotes: '1,234' } });
     }
-    if ([pairedImage('fixture-paired-a'), pairedImage('fixture-paired-b')].includes(url.href)) {
+    if ([pairedImage('fixture-paired-a'), pairedImage('fixture-paired-b'), verifiedAsset].includes(url.href)) {
       return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="160"><rect width="260" height="160" fill="teal"/></svg>' });
     }
     if (url.origin === hotstar) {
-      const markup = url.pathname === moviePath ? detail : url.pathname === '/in/shows' ? tvRow : `${movieTile}${showTile}${hoverTile}${nativeScoreTile}${decoys}`;
+      const markup = url.pathname === moviePath ? detail : url.pathname === '/in/shows' || url.searchParams.has('poster-memory') ? tvRow :
+        url.pathname === '/in/tv' ? verifiedRow : `${movieTile}${showTile}${hoverTile}${nativeScoreTile}${decoys}`;
       return route.fulfill({ contentType: 'text/html', body: document(markup) });
     }
     if (url.origin === netflix) return route.fulfill({ contentType: 'text/html', body: document(netflixTile) });
@@ -275,7 +281,7 @@ test('Hotstar detail shows the same cached rating and the SPA playback route cle
   await page.close();
 });
 
-test('Hotstar TV pairs an unlinked poster only with its unambiguous same-row hover', async () => {
+test('Hotstar remembers a verified TV poster on Home and after reload, without transferring it to different artwork', async () => {
   const page = await context.newPage();
   await page.goto(`${hotstar}/in/shows`);
   const target = page.locator('#paired-poster'), neighbor = page.locator('#neighbor-poster');
@@ -315,5 +321,30 @@ test('Hotstar TV pairs an unlinked poster only with its unambiguous same-row hov
   await expect(page).toHaveURL(`${hotstar}/in/shows`);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(mark(target)).toHaveAttribute('aria-label', /No marks/);
+  await want(page, target);
+  const priorDetails = detailCalls.length;
+  await page.reload();
+  await expect(hover).toBeHidden();
+  await expect(badge(target)).toHaveText('★ IMDb 8.4');
+  await page.goto(`${hotstar}/in/home?poster-memory=1`);
+  await expect(hover).toBeHidden();
+  await expect(badge(target)).toHaveText('★ IMDb 8.4');
+  await expect(mark(target)).toHaveAttribute('aria-label', /^Fixture Paired Show: Want to watch/);
+  await expect(badge(neighbor)).toHaveCount(0);
+  expect(detailCalls).toHaveLength(priorDetails);
+  await mark(target).press('Enter');
+  await page.getByRole('menuitem', { name: 'Clear plan', exact: true }).click();
+  await expect(mark(target)).toHaveAttribute('aria-label', /No marks/);
+  await page.close();
+});
+
+test('Hotstar bootstraps a verified public poster on first sight, but leaves a same-title art variant unassigned', async () => {
+  const page = await context.newPage();
+  expect(identityCalls.flatMap(call => call.ids)).not.toContain('8549');
+  await page.goto(`${hotstar}/in/tv`);
+  await expect(badge(page.locator('#verified-poster'))).toHaveText('★ IMDb 8.5');
+  await expect(mark(page.locator('#verified-poster'))).toBeEnabled();
+  await expect(badge(page.locator('#different-poster'))).toHaveCount(0);
+  await expect(mark(page.locator('#different-poster'))).toHaveCount(0);
   await page.close();
 });

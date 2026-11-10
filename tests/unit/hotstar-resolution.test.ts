@@ -65,11 +65,14 @@ const details = (extra: Record<string, unknown> = {}) => ({ Response: 'True', ..
   Actors: cast.actors.join(', '), ...extra });
 
 function seasonFixture(hits = [searchHit()], records: Record<string, unknown> = { [workId]: details() }, total = hits.length,
-  direct: DirectIdResult = { kind: 'missing' }) {
+  direct: DirectIdResult = { kind: 'missing' }, narrowed?: { hits: ReturnType<typeof searchHit>[]; total: number }) {
   const repo = new Repository(`hotstar-seasons-${crypto.randomUUID()}`);
   const config = { settings: async () => DEFAULT_SETTINGS, credential: async () => ({ key: 'fixture_only' }) } as unknown as Configuration;
-  const request = vi.fn(async (params: Record<string, string>, _explicit: boolean, decode: (raw: unknown) => unknown) =>
-    decode(params.s ? { Response: 'True', totalResults: String(total), Search: hits } : records[params.i]));
+  const request = vi.fn(async (params: Record<string, string>, _explicit: boolean, decode: (raw: unknown) => unknown) => {
+    if (!params.s) return decode(records[params.i]);
+    const results = params.y && narrowed ? narrowed : { hits, total };
+    return decode({ Response: 'True', totalResults: String(results.total), Search: results.hits });
+  });
   const publicMetadata = vi.fn(async () => ({ kind: 'missing' as const }));
   const resolver = new Resolver(repo, { request } as unknown as Scheduler, config, { resolve: async () => direct }, { resolve: publicMetadata });
   return { repo, resolver, request, publicMetadata };
@@ -141,12 +144,57 @@ describe('Hotstar series season corroboration', () => {
     expect(request).toHaveBeenCalledTimes(3);
   });
 
-  it.each([{ hits: [searchHit()], total: 11 }, { hits: [searchHit(), searchHit(otherId), searchHit('tt1234569')], total: 3 }])
-    ('does not inspect details when the search is incomplete or has too many eligible candidates %#', async ({ hits, total }) => {
+  it.each([{ hits: [searchHit(workId, '2013–')], total: 11 }, { hits: [searchHit(), searchHit(otherId), searchHit('tt1234569')], total: 3 }])
+    ('does not inspect details when the search is incomplete without an explicit end or has too many eligible candidates %#', async ({ hits, total }) => {
       const { resolver, request } = seasonFixture(hits, {}, total);
       expect((await resolver.lookup(yearObservation)).state).toEqual({ kind: 'needs_match', reason: 'ambiguous' });
       expect(request).toHaveBeenCalledTimes(1);
     });
+
+  it('recovers a completed series from an incomplete search by its actual IMDb start year', async () => {
+    const { resolver, request } = seasonFixture([searchHit(otherId, '2001–2003'), searchHit()], { [workId]: details() }, 22,
+      { kind: 'missing' }, { hits: [searchHit()], total: 1 });
+    expect((await resolver.lookup(yearObservation)).state).toMatchObject({ kind: 'rated', identitySource: 'hotstar', matchBasis: 'seasons' });
+    expect(request.mock.calls.map(call => call[0])).toEqual([
+      { s: series.displayTitle, type: 'series', page: '1' },
+      { s: series.displayTitle, type: 'series', y: '2005', page: '1' },
+      { i: workId, plot: 'short' },
+    ]);
+  });
+
+  it.each([
+    { hits: [searchHit()], total: 11 },
+    { hits: [searchHit(otherId)], total: 1 },
+    { hits: [searchHit(workId, '2004–2013')], total: 1 },
+    { hits: [searchHit(workId, '2005–')], total: 1 },
+    { hits: [{ ...searchHit(), Title: 'Fixture Family Returns' }], total: 1 },
+    { hits: [searchHit(), searchHit(otherId)], total: 2 },
+    { hits: [], total: 0 },
+  ])('does not fetch detail unless a complete narrowed set confirms the same eligible candidate %#', async narrowed => {
+    const { resolver, request, repo } = seasonFixture([searchHit()], {}, 22, { kind: 'missing' }, narrowed);
+    expect((await resolver.lookup(yearObservation)).state).toEqual({ kind: 'needs_match', reason: 'ambiguous' });
+    expect(request.mock.calls.map(call => call[0].y)).toEqual([undefined, '2005']);
+    expect(await repo.get('mappings', titleKey(series.ref))).toBeUndefined();
+  });
+
+  it.each([
+    { hits: [searchHit()], observation: { ...yearObservation, seasonCount: 2 } },
+    { hits: [searchHit()], observation: { ...yearObservation, credits: cast } },
+    { hits: [searchHit(), searchHit(otherId, '2013–')], observation: yearObservation },
+    { hits: [searchHit(workId, '2013–2013')], observation: yearObservation },
+  ])('keeps the incomplete-set stop when the initial evidence does not safely support narrowing %#', async ({ hits, observation }) => {
+    const { resolver, request } = seasonFixture(hits, {}, 22);
+    expect((await resolver.lookup(observation)).state).toEqual({ kind: 'needs_match', reason: 'ambiguous' });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('still requires exact season count in detail after a successful narrowing search', async () => {
+    const { resolver, request, repo } = seasonFixture([searchHit()], { [workId]: details({ totalSeasons: '8' }) }, 22,
+      { kind: 'missing' }, { hits: [searchHit()], total: 1 });
+    expect((await resolver.lookup(yearObservation)).state).toEqual({ kind: 'needs_match', reason: 'contradiction' });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(await repo.get('mappings', titleKey(series.ref))).toBeUndefined();
+  });
 
   it.each([undefined, '9'])('refetches a fresh pre-upgrade rating only when its season count is missing (%s)', async count => {
     const { resolver, repo, request } = seasonFixture();

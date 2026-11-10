@@ -1,9 +1,11 @@
 import type { FilmCredits } from './edition';
 
 export const PROTOCOL_VERSION = 1;
-export const RESOLVER_VERSION = 5;
+export const RESOLVER_VERSION = 6;
 export const SCHEMA_VERSION = 3;
 export const PRODUCT_NAME = 'Stream Companion';
+export const HOTSTAR_POSTER_CAPACITY = 512;
+export const HOTSTAR_POSTER_BATCH_SIZE = 20;
 
 export interface PlatformTitleRef { platformId: string; titleId: string }
 export interface ExternalTitleRef { namespace: 'imdb'; id: string }
@@ -67,6 +69,12 @@ export interface CorrectionContext { id: string; observation: TitleObservation; 
 export interface PageStats {
   platformId: string; supported: boolean; tiles: number; rated: number; unresolved: number; cached: number;
 }
+export interface HotstarPosterBinding {
+  work: { pagePath: string; titleId: string; mediaType: 'movie' | 'series' };
+  metadata: { year?: number; seasonCount?: number } | null;
+}
+export interface HotstarPosterEntry { key: string; value: HotstarPosterBinding | null }
+export interface HotstarPosterSnapshot { entries: HotstarPosterEntry[] }
 export type Request =
   | { type: 'RELEASE_DEMAND'; ref?: PlatformTitleRef }
   | { type: 'OPEN_SETTINGS' }
@@ -96,6 +104,8 @@ export type Request =
   | { type: 'LIST_MARKS' }
   | { type: 'RESET_MARKS' }
   | { type: 'EXPORT_MARKS' }
+  | { type: 'GET_HOTSTAR_POSTERS' }
+  | { type: 'SAVE_HOTSTAR_POSTERS'; entries: HotstarPosterEntry[] }
   | { type: 'OPEN_TITLES' };
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
 export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef };

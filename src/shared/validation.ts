@@ -1,12 +1,14 @@
 import { netflixBrowseSurface } from '../platforms/netflix';
 import { HOTSTAR_ORIGIN, hotstarBrowseSurface, hotstarObservationPath, hotstarTitlePath } from '../platforms/hotstar/routes';
-import { PROTOCOL_VERSION, type Request, type TitleObservation } from './contracts';
+import { HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type Request, type TitleObservation } from './contracts';
 import { validateFilmCredits } from './edition';
+import { normaliseTitle } from './identity';
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const only = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).every(k => keys.includes(k));
 const string = (v: unknown, min: number, max: number): v is string => typeof v === 'string' && v.trim().length >= min && v.length <= max && !/[\u0000-\u001f]/.test(v);
 const revision = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
+const releaseYear = (value: unknown) => Number.isInteger(value) && Number(value) >= 1888 && Number(value) <= new Date().getUTCFullYear() + 5;
 type ContentPlatform = 'netflix' | 'hotstar';
 export function validRef(v: unknown): v is { platformId: ContentPlatform; titleId: string } {
   return isObject(v) && only(v, ['platformId', 'titleId']) &&
@@ -29,9 +31,35 @@ export function validObservation(v: unknown): v is TitleObservation {
     if (!isObject(v.year) || v.year.meaning !== meaning || (v.mediaType === 'series' && v.seasonCount === undefined)) return false;
   }
   return v.year === undefined || (isObject(v.year) && only(v.year, ['value', 'meaning']) &&
-    Number.isInteger(v.year.value) && Number(v.year.value) >= 1888 && Number(v.year.value) <= new Date().getUTCFullYear() + 5 &&
+    releaseYear(v.year.value) &&
     typeof v.year.meaning === 'string' && ['movie_release', 'series_start', 'season_release', 'unknown'].includes(v.year.meaning));
 }
+
+export function validHotstarPosterEntry(entry: unknown): entry is HotstarPosterEntry {
+  if (!isObject(entry) || !only(entry, ['key', 'value']) || !string(entry.key, 1, 800)) return false;
+  let parts: unknown;
+  try { parts = JSON.parse(entry.key); } catch { return false; }
+  if (!Array.isArray(parts) || parts.length !== 3 || JSON.stringify(parts) !== entry.key) return false;
+  const [asset, title, mediaType] = parts as unknown[];
+  if (typeof asset !== 'string' || !/^[A-Za-z0-9_-]{1,100}(?:\.[A-Za-z0-9]{1,5})?$/.test(asset) ||
+    !string(title, 1, 600) || normaliseTitle(title) !== title.normalize('NFC') ||
+    (mediaType !== 'movie' && mediaType !== 'series')) return false;
+  if (entry.value === null) return true;
+
+  const binding = entry.value;
+  if (!isObject(binding) || !only(binding, ['work', 'metadata']) || !isObject(binding.work) ||
+    !only(binding.work, ['pagePath', 'titleId', 'mediaType'])) return false;
+  const path = hotstarObservationPath(binding.work.pagePath);
+  if (!path || path.titleId !== binding.work.titleId || path.mediaType !== binding.work.mediaType || path.mediaType !== mediaType) return false;
+  const metadata = binding.metadata;
+  if (metadata === null) return true;
+  if (!isObject(metadata) || !only(metadata, ['year', 'seasonCount'])) return false;
+  if (metadata.year === undefined) return metadata.seasonCount === undefined;
+  if (!releaseYear(metadata.year)) return false;
+  if (mediaType === 'movie') return metadata.seasonCount === undefined;
+  return Number.isInteger(metadata.seasonCount) && Number(metadata.seasonCount) >= 1 && Number(metadata.seasonCount) <= 200;
+}
+
 const fields: Record<Request['type'], string[]> = {
   RELEASE_DEMAND: ['ref'],
   GET_PUBLIC_STATUS: [], OPEN_SETTINGS: [], LOOKUP: ['observation'], REFRESH: ['observation', 'revision'],
@@ -41,10 +69,11 @@ const fields: Record<Request['type'], string[]> = {
   CONFIRM_MATCH: ['contextId', 'previewId'], LIST_MATCHES: [], REMOVE_MATCH: ['ref', 'revision'],
   RESET_MATCHES: [], CLEAR_RATING_CACHE: [], EXPORT_DIAGNOSTICS: [], EXPORT_MATCHING_LOG: [], CLEAR_MATCHING_LOG: [],
   GET_MARKS: ['refs'], SET_MARK: ['observation', 'watched', 'plan', 'revision', 'epoch'], UNDO_MARK: ['ref', 'operationId', 'revision', 'epoch'],
-  LIST_MARKS: [], RESET_MARKS: [], EXPORT_MARKS: [], OPEN_TITLES: []
+  LIST_MARKS: [], RESET_MARKS: [], EXPORT_MARKS: [], OPEN_TITLES: [],
+  GET_HOTSTAR_POSTERS: [], SAVE_HOTSTAR_POSTERS: ['entries']
 };
 export function validateRequest(raw: unknown): Request {
-  if (!isObject(raw) || JSON.stringify(raw).length > 16000 || raw.protocol !== PROTOCOL_VERSION ||
+  if (!isObject(raw) || JSON.stringify(raw).length > (raw.type === 'SAVE_HOTSTAR_POSTERS' ? 30000 : 16000) || raw.protocol !== PROTOCOL_VERSION ||
     typeof raw.type !== 'string' || !Object.hasOwn(fields, raw.type)) throw new Error('Unsupported extension message.');
   const type = raw.type as Request['type'];
   if (!only(raw, ['protocol', 'type', ...fields[type]]) || !fields[type].every(k => (type === 'RELEASE_DEMAND' && k === 'ref') || (type === 'PREVIEW_MATCH' && k === 'searchId') || (type === 'SET_MARK' && ['watched','plan'].includes(k)) || Object.hasOwn(raw, k))) throw new Error('Invalid extension message fields.');
@@ -52,6 +81,8 @@ export function validateRequest(raw: unknown): Request {
   if ('ref' in raw && !validRef(raw.ref)) throw new Error('Invalid platform title.');
   if ('revision' in raw && !revision(raw.revision)) throw new Error('Invalid mapping revision.');
   if ('epoch' in raw && !revision(raw.epoch)) throw new Error('Invalid marks generation.');
+  if (type === 'SAVE_HOTSTAR_POSTERS' && (!Array.isArray(raw.entries) || raw.entries.length < 1 ||
+    raw.entries.length > HOTSTAR_POSTER_BATCH_SIZE || !raw.entries.every(validHotstarPosterEntry))) throw new Error('Invalid Hotstar poster evidence.');
   if (type === 'GET_MARKS' && (!Array.isArray(raw.refs) || raw.refs.length > 100 || !raw.refs.every(validRef))) throw new Error('Invalid marks request.');
   if (type === 'SET_MARK' && ((!('watched' in raw) && !('plan' in raw)) || ('watched' in raw && typeof raw.watched !== 'boolean') || ('plan' in raw && (typeof raw.plan !== 'string' || !['none','want','pass'].includes(raw.plan))))) throw new Error('Invalid title mark.');
   if (type === 'UNDO_MARK' && !string(raw.operationId, 36, 36)) throw new Error('Invalid undo operation.');
@@ -104,6 +135,8 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
 
   const url = new URL(sender.url!);
   const platformId = contentPlatform(url)!;
+  if (platformId !== 'hotstar' && (request.type === 'GET_HOTSTAR_POSTERS' || request.type === 'SAVE_HOTSTAR_POSTERS'))
+    throw new Error('This page cannot access Hotstar poster evidence.');
   const refs = 'observation' in request ? [request.observation.ref] : 'refs' in request ? request.refs :
     'ref' in request && request.ref ? [request.ref] : [];
   if (refs.some(ref => ref.platformId !== platformId)) throw new Error('Invalid platform title for this page.');
@@ -116,7 +149,7 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
 }
 export function authoriseCommand(role: SenderRole, type: Request['type']): void {
   const allowed: Record<SenderRole, Request['type'][]> = {
-    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES'],
+    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES', 'GET_HOTSTAR_POSTERS', 'SAVE_HOTSTAR_POSTERS'],
     popup: ['GET_STATUS', 'UPDATE_SETTINGS', 'OPEN_SETTINGS','OPEN_TITLES'],
     options: ['GET_STATUS', 'UPDATE_SETTINGS', 'SET_API_KEY', 'TEST_API_KEY', 'REMOVE_API_KEY', 'LIST_MATCHES', 'REMOVE_MATCH', 'RESET_MATCHES', 'CLEAR_RATING_CACHE', 'EXPORT_DIAGNOSTICS', 'EXPORT_MATCHING_LOG', 'CLEAR_MATCHING_LOG', 'OPEN_TITLES','LIST_MARKS','RESET_MARKS','EXPORT_MARKS'],
     correction: ['GET_STATUS', 'GET_CONTEXT', 'SEARCH_MATCHES', 'PREVIEW_MATCH', 'CONFIRM_MATCH', 'OPEN_SETTINGS'],

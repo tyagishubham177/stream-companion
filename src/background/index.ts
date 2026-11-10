@@ -9,11 +9,13 @@ import { Resolver, candidateChecks, stateFromRecord } from './resolver';
 import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
 import { MarksService, MarkError } from './marks';
+import { HotstarPosterMemory } from './hotstar-posters';
 import { MatchingLog, candidateRecord, type AutomaticDecision, type MatchEvent, type SearchEvidence, type SearchSelection } from './matching-log';
 
 const repo = new Repository();
 const config = new Configuration();
 const marks = new MarksService(repo);
+const hotstarPosters = new HotstarPosterMemory();
 const scheduler = new Scheduler(repo, () => config.credential(), fetch, async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false }; });
 const matchingEligibility = async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false && s.automaticMatching !== false }; };
 const directIds = new WikidataResolver(repo, matchingEligibility);
@@ -189,8 +191,11 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
       }
       for (const [key, value] of navigationRates) if (Date.now() - value.at > 60000) navigationRates.delete(key);
     }
-    if (role === 'content') await register(sender, authority.platformId);
+    if (role === 'content' && request.type !== 'GET_HOTSTAR_POSTERS' && request.type !== 'SAVE_HOTSTAR_POSTERS')
+      await register(sender, authority.platformId);
     switch (request.type) {
+      case 'GET_HOTSTAR_POSTERS': return await hotstarPosters.get();
+      case 'SAVE_HOTSTAR_POSTERS': return await hotstarPosters.save(request.entries);
       case 'GET_PUBLIC_STATUS': return await publicStatus();
       case 'GET_STATUS': return await status();
       case 'GET_MARKS': return await marks.get(request.refs);

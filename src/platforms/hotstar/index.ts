@@ -2,6 +2,7 @@ import type { TitleObservation } from '../../shared/contracts';
 import { validateFilmCredits } from '../../shared/edition';
 import { normaliseTitle } from '../../shared/identity';
 import type { StreamingPlatformAdapter } from '../contracts';
+import { hotstarPosterBinding, hotstarPosterKey, rememberHotstarPoster, restoreHotstarPosters } from './poster-memory';
 import { HOTSTAR_ORIGIN, hotstarBrowseSurface, hotstarTitlePath } from './routes';
 
 const LINK = 'a[data-testid="link"][href]';
@@ -17,14 +18,11 @@ const ACTION = '[data-testid="action"][aria-label]';
 const TILES = `${LINK},${HOVER},${DETAIL},${FEATURED},${DEFAULT}`;
 const METADATA_SCOPE = `${TILES},${SEARCH_HERO}`;
 const VERSION = 2;
-const MAX_LEARNED_POSTERS = 512;
 
 type Work = NonNullable<ReturnType<typeof hotstarTitlePath>>;
 interface WorkLabel { title: string; mediaType: Work['mediaType'] }
 interface PosterIdentity extends WorkLabel { key: string; image: HTMLImageElement }
 interface ShownMetadata { year?: number; seasonCount?: number }
-interface LearnedPoster { work: Work; metadata: ShownMetadata | null }
-const learnedPosters = new Map<string, LearnedPoster | null>();
 let coveredCards = new WeakMap<HTMLElement, HTMLElement>();
 
 const text = (value: string | null | undefined): string | undefined => {
@@ -51,17 +49,30 @@ function yearValue(value: unknown): number | undefined {
   if (year >= 1888 && year <= new Date().getUTCFullYear() + 5) return year;
 }
 
-function rendered(element: HTMLElement): boolean {
-  return element.isConnected && !element.closest('[hidden],[inert],[aria-hidden="true"]') &&
+function painted(element: HTMLElement): boolean {
+  return element.isConnected && !element.closest('[hidden],[inert]') &&
     element.getClientRects().length > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+}
+
+function rendered(element: HTMLElement): boolean {
+  return !element.closest('[aria-hidden="true"]') && painted(element);
 }
 
 function metadataTags(tile: HTMLElement): string[] {
   return [...tile.querySelectorAll<HTMLElement>('span[data-testid="textTag"]')].flatMap(tag => {
     const scope = tag.closest(METADATA_SCOPE);
-    if (!(scope === tile || (scope?.matches(SEARCH_HERO) && scope.closest(TILES) === tile)) || !rendered(tag)) return [];
+    if (!(scope === tile || (scope?.matches(SEARCH_HERO) && scope.closest(TILES) === tile))) return [];
     const label = text(tag.textContent);
-    return label ? [label] : [];
+    if (!label || !painted(tag)) return [];
+    const hidden = tag.closest('[aria-hidden="true"]');
+    if (hidden) {
+      // Hotstar duplicates its visually rendered hero tags in an accessible
+      // group label. Accept only a tag explicitly repeated by that same group.
+      const group = hidden.parentElement?.closest<HTMLElement>('[aria-label]');
+      if (!group || group === scope || !scope.contains(group) || !rendered(group) ||
+        !group.getAttribute('aria-label')?.split(',').some(part => text(part) === label)) return [];
+    }
+    return [label];
   });
 }
 
@@ -120,7 +131,7 @@ function posterIdentity(tile: HTMLElement): PosterIdentity | null {
     normaliseTitle(image.alt) === normalised && !image.closest(TITLE_CUTOUT));
   if (artwork.length !== 1) return null;
   const asset = publicPosterAsset(artwork[0]);
-  return asset ? { ...label, key: JSON.stringify([asset, normalised, label.mediaType]), image: artwork[0] } : null;
+  return asset ? { ...label, key: hotstarPosterKey(asset, label.title, label.mediaType), image: artwork[0] } : null;
 }
 
 function coversPoster(hover: DOMRect, poster: DOMRect): boolean {
@@ -151,19 +162,7 @@ function learnPoster(hover: HTMLElement, work: Work, displayTitle: string): void
   const identity = posterIdentity(tile);
   if (!identity || !coversPoster(bounds, identity.image.getBoundingClientRect())) return;
   coveredCards.set(tile, hover);
-  const { key } = identity;
-  const previous = learnedPosters.get(key);
-  if (previous === null) return;
-  if (previous && previous.work.titleId !== work.titleId) {
-    learnedPosters.set(key, null);
-    return;
-  }
-  const metadata = shownMetadata(hover, work.mediaType);
-  if (!previous && learnedPosters.size < MAX_LEARNED_POSTERS) learnedPosters.set(key, { work, metadata });
-  else if (previous?.metadata && metadata.year) {
-    if (!previous.metadata.year) previous.metadata = metadata;
-    else if (previous.metadata.year !== metadata.year || previous.metadata.seasonCount !== metadata.seasonCount) previous.metadata = null;
-  }
+  rememberHotstarPoster(identity.key, { work, metadata: shownMetadata(hover, work.mediaType) });
 }
 
 function isCovered(tile: HTMLElement): boolean {
@@ -261,7 +260,7 @@ function observation(tile: HTMLElement): TitleObservation | null {
   if (tile.matches(DEFAULT)) {
     if (isCovered(tile) || [...tile.querySelectorAll(LINK)].some(anchor => !anchor.closest(HOVER) && linkedWork(anchor, false))) return null;
     const identity = posterIdentity(tile);
-    const learned = identity && learnedPosters.get(identity.key);
+    const learned = identity && hotstarPosterBinding(identity.key);
     return identity && learned ? fromWork(learned.work, identity.title, learned.metadata ?? undefined) : null;
   }
   if (!tile.matches(LINK) || tile.closest(`${HOVER},${DETAIL},${FEATURED}`) || isCovered(tile)) return null;
@@ -291,6 +290,7 @@ export const hotstarAdapter: StreamingPlatformAdapter = {
   id: 'hotstar', version: VERSION,
   supports: hotstarBrowseSurface,
   findTiles(root) {
+    restoreHotstarPosters();
     const tiles = [...root.querySelectorAll<HTMLElement>(TILES)];
     coveredCards = new WeakMap();
     for (const hover of tiles) {

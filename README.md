@@ -10,7 +10,7 @@ A personal Chrome extension for **IMDb ratings and title marks on Netflix and Ji
 
 **Automatic matching:** supported visible cards and expanded previews use public platform IDs first. Film title, type and release year can support a strict OMDb match. Public cast on a title page can distinguish same-name series without treating a season date as the series start. Corrections remain optional, and ambiguous matches remain unresolved.
 
-On JioHotstar India, the extension supports TV, Movies, search results, linked browsing cards, Continue Watching, expanded previews and title details. Some collapsed posters expose only a name and image. After a verified preview reveals the title ID, those posters can keep their controls until the page reloads. See [verification](docs/verification.md) for the tested cases and limits.
+On JioHotstar India, the extension supports Home, TV, Movies, search results, linked browsing cards, Continue Watching, expanded previews and title details. Some collapsed posters expose only a name and image. The extension remembers a verified poster-to-title match locally and can then show ratings and marks before hover, including after a reload or moving between Home and TV. A small set of verified public posters works on the first visit. An unfamiliar unlinked poster still needs a Hotstar preview to confirm its identity. See [verification](docs/verification.md) for the tested cases and limits.
 
 Hotstar scores labelled IMDb appear with JioHotstar attribution. Other series can resolve through OMDb when the title, season count and a confirmed start or end year agree. The displayed Hotstar year stays separate from the series premiere year.
 

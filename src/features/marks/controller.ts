@@ -85,11 +85,12 @@ export class MarksController {
         this.schedule();
       });
       this.observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true,
-        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'data-testid', 'hidden', 'alt'] });
+        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'data-testid', 'hidden', 'alt',
+          ...(adapter.id === 'hotstar' ? ['src', 'srcset'] : [])] });
       this.scan();
     }
   }
-  private schedule(): void {
+  schedule(): void {
     if (!this.view || this.scanTimer || this.stopped) return;
     this.scanTimer = setTimeout(() => { this.scanTimer = undefined; this.scan(); }, 90);
   }

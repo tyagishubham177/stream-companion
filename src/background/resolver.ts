@@ -245,9 +245,9 @@ export class Resolver {
         throw error;
       }
     };
-    const search = async (title: string): Promise<SearchResult> => {
+    const search = async (title: string, year = usableYear(evidence)): Promise<SearchResult> => {
       let result: SearchResult;
-      try { result = await automaticRequest({ s: title, ...(usableYear(evidence) !== undefined ? { y: String(usableYear(evidence)) } : {}), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1)); }
+      try { result = await automaticRequest({ s: title, ...(year !== undefined ? { y: String(year) } : {}), type: evidence.mediaType, page: '1' }, raw => parseSearch(raw, 1)); }
       catch (error) {
         if (error instanceof ProviderError && error.kind === 'not_found') result = { candidates: [], total: 0, page: 1 };
         else {
@@ -256,9 +256,17 @@ export class Resolver {
         }
       }
       steps.push({ stage: 'omdb_search', outcome: result.total > result.candidates.length ? 'incomplete_set' : 'complete_set',
-        search: { query: title, page: 1, year: usableYear(evidence), mediaType: evidence.mediaType, total: result.total,
+        search: { query: title, page: 1, year, mediaType: evidence.mediaType, total: result.total,
           candidates: result.candidates.map(candidate => ({ ...candidate, checks: candidateChecks(evidence, candidate, mapping?.rejected ?? []) })) } });
       return result;
+    };
+    const seasonCandidates = (result: SearchResult, catalogueYear: number) => {
+      const title = normaliseTitle(evidence.displayTitle);
+      return result.candidates.flatMap(candidate => {
+        if (candidate.mediaType !== 'series' || normaliseTitle(candidate.title) !== title || mapping?.rejected.includes(candidate.id)) return [];
+        const years = seriesYears(candidate.year);
+        return years && (years.start === catalogueYear || years.end === catalogueYear) ? [{ candidate, years }] : [];
+      });
     };
     const detailWithCredits = async (id: string): Promise<RatingRecord> => {
       const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
@@ -284,9 +292,25 @@ export class Resolver {
         ? stateFromMapping(record, winner) : { kind: 'needs_match', reason: 'contradiction' };
     };
     try {
-      const result = await search(evidence.displayTitle);
-      // An incomplete candidate set cannot establish a unique identity.
-      if (result.total > result.candidates.length) return await save({ kind: 'needs_match', reason: 'ambiguous' });
+      let result = await search(evidence.displayTitle);
+      if (result.total > result.candidates.length) {
+        // A completed multi-season series can supply a start year for a narrower
+        // search. The catalogue year itself is never used as the start-year filter.
+        if (!seasonEvidence || seasonEvidence.count < 3 || metadataMatch?.mediaType === 'series')
+          return await save({ kind: 'needs_match', reason: 'ambiguous' });
+        const { year } = seasonEvidence;
+        const initial = seasonCandidates(result, year);
+        if (initial.length !== 1 || initial[0].years.end !== year || initial[0].years.start >= year)
+          return await save({ kind: 'needs_match', reason: 'ambiguous' });
+        const first = initial[0];
+        const narrowed = await search(evidence.displayTitle, first.years.start);
+        const eligible = seasonCandidates(narrowed, year);
+        if (narrowed.total > narrowed.candidates.length || eligible.length !== 1 || eligible[0].candidate.id !== first.candidate.id ||
+          eligible[0].years.start !== first.years.start || eligible[0].years.end !== first.years.end)
+          return await save({ kind: 'needs_match', reason: 'ambiguous' });
+        steps.push({ stage: 'series_start_year_narrowing', outcome: 'same_candidate_in_complete_set', candidate: eligible[0].candidate });
+        result = narrowed;
+      }
       if (metadataMatch?.mediaType === 'series') {
         const seriesCandidates = result.candidates.filter(candidate => candidate.mediaType === 'series' &&
           [evidence.displayTitle, ...(evidence.aliases ?? [])].some(title => normaliseTitle(title) === normaliseTitle(candidate.title)) && !mapping?.rejected.includes(candidate.id));
@@ -304,11 +328,7 @@ export class Resolver {
       if (seasonEvidence) {
         const { year, count } = seasonEvidence;
         const title = normaliseTitle(evidence.displayTitle);
-        const candidates = result.candidates.flatMap(candidate => {
-          if (candidate.mediaType !== 'series' || normaliseTitle(candidate.title) !== title || mapping?.rejected.includes(candidate.id)) return [];
-          const years = seriesYears(candidate.year);
-          return years && (years.start === year || years.end === year) ? [{ candidate, years }] : [];
-        });
+        const candidates = seasonCandidates(result, year);
         if (!candidates.length || candidates.length > 2) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
         const verified: RatingRecord[] = [];
         let unknownCount = false;
