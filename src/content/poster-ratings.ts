@@ -1,6 +1,6 @@
 import type { StreamingPlatformAdapter } from '../platforms/contracts';
 import { ExtensionContextInvalidatedError, rpc } from '../shared/client';
-import type { HotstarPosterRatingRequest, HotstarPosterRatingResult, Settings } from '../shared/contracts';
+import type { HotstarPosterLookupCounts, HotstarPosterRatingRequest, HotstarPosterRatingResult, Settings } from '../shared/contracts';
 import { eligibleHotstarPosterTitle } from '../shared/hotstar-poster-binding';
 import type { BadgeMount, Overlay } from './overlay';
 
@@ -17,6 +17,7 @@ export class PosterRatings {
   private readonly results = new Map<string, HotstarPosterRatingResult>();
   private readonly pending = new Map<string, symbol>();
   private wake?: ReturnType<typeof setTimeout>;
+  private counts: HotstarPosterLookupCounts = {};
   private epoch = 0;
   private disposed = false;
 
@@ -26,6 +27,7 @@ export class PosterRatings {
 
   get size(): number { return this.tiles.size; }
   get rated(): number { return [...this.tiles.values()].filter(state => state.mount && !state.mount.button.hidden).length; }
+  get lookupCounts(): HotstarPosterLookupCounts { return this.counts; }
 
   scan(root: ParentNode): void {
     for (const state of this.tiles.values()) this.check(state.tile);
@@ -66,9 +68,12 @@ export class PosterRatings {
     clearTimeout(this.wake); this.wake = undefined;
     if (settings.automaticMatching === false) {
       for (const state of this.tiles.values()) this.hide(state);
+      this.updateCounts({});
       return;
     }
     const now = Date.now();
+    const seen = new Set<string>();
+    const counts: HotstarPosterLookupCounts = {};
     let next = Infinity;
     for (const state of this.tiles.values()) {
       if (state.visibleSince === undefined || !state.tile.isConnected) continue;
@@ -77,13 +82,20 @@ export class PosterRatings {
       if (this.adapter.isObscured(state.tile) || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) {
         this.hide(state); continue;
       }
+      if (!seen.has(key)) {
+        seen.add(key);
+        const bucket = result && result.expiresAt > now
+          ? result.record?.score != null ? result.origin ?? 'cache' : result.outcome ?? 'retry'
+          : 'waiting';
+        counts[bucket] = (counts[bucket] ?? 0) + 1;
+      }
       if (state.mount) {
         state.mount.host.dataset.corner = settings.corner;
         if (result && result.expiresAt > now) { state.mount.button.hidden = false; continue; }
         this.unmount(state);
       }
       if (result && result.expiresAt > now) {
-        if (result.record?.score != null) this.mount(state, result.record, settings.corner);
+        if (result.record?.score != null) this.mount(state, result, settings.corner);
         continue;
       }
       // Let users scroll past rows without paying for every poster, and leave
@@ -94,13 +106,21 @@ export class PosterRatings {
         else next = Math.min(next, ready);
       }
     }
+    this.updateCounts(counts);
     if (next !== Infinity) this.wake = setTimeout(this.onChange, Math.max(0, next - Date.now()));
+  }
+
+  private updateCounts(counts: HotstarPosterLookupCounts): void {
+    this.counts = counts;
+    const value = JSON.stringify(counts);
+    if (this.overlay.host.dataset.scPosterLookups !== value) this.overlay.host.dataset.scPosterLookups = value;
   }
 
   invalidate(): void {
     this.epoch++;
     clearTimeout(this.wake); this.wake = undefined;
     this.results.clear();
+    this.updateCounts({});
     for (const state of this.tiles.values()) this.unmount(state);
   }
 
@@ -111,7 +131,9 @@ export class PosterRatings {
     this.tiles.clear();
   }
 
-  private mount(state: PosterTile, record: NonNullable<HotstarPosterRatingResult['record']>, corner: Settings['corner']): void {
+  private mount(state: PosterTile, result: HotstarPosterRatingResult, corner: Settings['corner']): void {
+    const { record } = result;
+    if (!record) return;
     if (this.adapter.observePoster?.(state.tile)?.key !== state.poster.key) return;
     const container = this.adapter.badgeContainer(state.tile);
     if (!container) return;
@@ -124,6 +146,8 @@ export class PosterRatings {
     });
     state.mount = mount;
     mount.host.dataset.corner = corner;
+    mount.host.dataset.scRatingOrigin = result.origin ?? 'cache';
+    mount.host.dataset.scRatingFetchedAt = String(record.fetchedAt);
     this.overlay.updateBadge(mount.button, observation, rating);
     mount.button.hidden = false;
   }
@@ -153,7 +177,7 @@ export class PosterRatings {
     };
     void rpc<HotstarPosterRatingResult>({ type: 'LOOKUP_HOTSTAR_POSTER_RATING', poster }).then(save).catch(error => {
       if (error instanceof ExtensionContextInvalidatedError) { if (active()) this.onDisconnect(); }
-      else save({ record: null, expiresAt: Date.now() + 30000, retryable: true });
+      else save({ record: null, expiresAt: Date.now() + 30000, retryable: true, outcome: 'retry' });
     }).finally(() => {
       if (this.pending.get(poster.key) === token) this.pending.delete(poster.key);
       if (!this.disposed) this.onChange();

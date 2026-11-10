@@ -1,5 +1,11 @@
 # Stream Companion v1 verification
 
+## Hotstar first-view coverage (0.6.3)
+
+The previous matcher skipped short titles before sending a request. It also stopped when a search returned over 20 entries, and compared its filtered candidate count with the raw page size. The updated matcher searches titles containing letters, validates up to four pages using raw entries, and stops early when it sees two exact title-and-type matches. It retries old negative results and reuses valid positive associations. A blank can still mean a genuine collision, a search over the new bound, no exact result, no IMDb rating, or a provider delay.
+
+All 649 unit tests and 35 browser scenarios passed. The Home and TV browser fixtures use unseen posters and mocked provider data. They assert that the extension makes a new detail request and labels it `fresh`, including for a short TV title found on page three. Home reload is checked separately as `cache`. In a live test, count a `fresh` badge only when its fetch timestamp falls inside the no-hover sample window. The popup summarizes visible unlinked posters by outcome without including confirmed Hotstar ratings in the fresh count.
+
 ## Hotstar unlinked posters (0.6.2)
 
 On the installed 0.6.1 build, the live Explore Peacock Home row showed Suits, Fast X, The Fall Guy, and Fifty Shades of Grey after their lookups settled. Obsession, Oppenheimer, Michael, and Five Nights at Freddy's stayed blank. Those collapsed posters exposed a scoped title label, explicit movie/show type, and public artwork, without a whole-work link or release year. The old adapter did not start a rating lookup for them.

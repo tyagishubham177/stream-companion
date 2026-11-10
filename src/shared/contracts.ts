@@ -68,6 +68,7 @@ export interface SavedMatch { ref: PlatformTitleRef; displayTitle: string; imdbI
 export interface CorrectionContext { id: string; observation: TitleObservation; revision: number }
 export interface PageStats {
   platformId: string; supported: boolean; tiles: number; rated: number; unresolved: number; cached: number;
+  posterLookups?: HotstarPosterLookupCounts;
 }
 export interface HotstarPosterBinding {
   work: { pagePath: string; titleId: string; mediaType: 'movie' | 'series' };
@@ -76,7 +77,15 @@ export interface HotstarPosterBinding {
 export interface HotstarPosterEntry { key: string; value: HotstarPosterBinding | null }
 export interface HotstarPosterSnapshot { entries: HotstarPosterEntry[] }
 export interface HotstarPosterRatingRequest { key: string; title: string; mediaType: 'movie' | 'series' }
-export interface HotstarPosterRatingResult { record: RatingRecord | null; expiresAt: number; retryable?: boolean }
+export type HotstarPosterOutcome = 'ambiguous' | 'too_broad' | 'not_found' | 'unrated' | 'conflict' | 'paused' | 'retry';
+export interface HotstarPosterRatingResult {
+  record: RatingRecord | null;
+  expiresAt: number;
+  retryable?: boolean;
+  origin?: 'fresh' | 'cache';
+  outcome?: HotstarPosterOutcome;
+}
+export type HotstarPosterLookupCounts = Partial<Record<HotstarPosterOutcome | 'fresh' | 'cache' | 'waiting', number>>;
 export type Request =
   | { type: 'RELEASE_DEMAND'; ref?: PlatformTitleRef; posterKey?: string }
   | { type: 'OPEN_SETTINGS' }

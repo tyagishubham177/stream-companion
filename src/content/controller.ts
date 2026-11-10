@@ -461,6 +461,7 @@ export class ContentController {
       rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length + (this.posterRatings?.rated ?? 0),
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,
       cached: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,
+      ...(this.posterRatings ? { posterLookups: this.posterRatings.lookupCounts } : {}),
     };
   }
 

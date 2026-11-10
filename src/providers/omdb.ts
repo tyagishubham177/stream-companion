@@ -39,18 +39,24 @@ export function parseTitleDetail(raw: unknown, now: number): RatingRecord {
   if (!object(raw) || !imdbId(raw.imdbID)) throw new ProviderError('provider', 'The rating service returned an unsupported title response.');
   return parseDetail(raw, raw.imdbID, now);
 }
-export function parseSearch(raw: unknown, page: number): SearchResult {
+export function parseSearch(raw: unknown, page: number): SearchResult & { entryIds: string[] } {
   if (!object(raw) || raw.Response !== 'True' || !Array.isArray(raw.Search) || raw.Search.length > 10 ||
     typeof raw.totalResults !== 'string' || !/^\d+$/.test(raw.totalResults)) throw new ProviderError('provider', 'The rating service returned an unsupported search response.');
   const candidates: Candidate[] = [];
+  const entryIds: string[] = [];
   for (const value of raw.Search) {
     if (!object(value) || !imdbId(value.imdbID) || !text(value.Title) || !text(value.Year, 30)) throw new ProviderError('provider', 'The rating service returned invalid search results.');
+    entryIds.push(value.imdbID);
     if (value.Type === 'movie' || value.Type === 'series') candidates.push({ id: value.imdbID, title: value.Title as string, year: value.Year as string, mediaType: value.Type });
     else if (value.Type !== 'episode' && value.Type !== 'game') throw new ProviderError('provider', 'The rating service returned an unknown title type.');
   }
   const total = Number(raw.totalResults);
   if (!Number.isSafeInteger(total) || total < raw.Search.length) throw new ProviderError('provider', 'The rating service returned an invalid search count.');
-  return { candidates, total, page };
+  // Pagination needs the raw IDs, including episodes and games omitted from candidates.
+  // Keep these internal when a search is spread into correction results or storage.
+  const result = { candidates, total, page, entryIds };
+  Object.defineProperty(result, 'entryIds', { enumerable: false });
+  return result;
 }
 
 /** Worker-only client. URLs and upstream error strings never escape this module. */

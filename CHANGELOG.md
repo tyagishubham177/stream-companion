@@ -2,6 +2,11 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.6.3 — More Hotstar ratings on first view
+
+- Search short poster titles and check up to four result pages for a unique exact match. Stop early when two works share the same title and type.
+- Report fresh lookups, cache hits and unresolved results for visible unlinked posters in the popup.
+
 ## 0.6.2 — Hotstar poster coverage
 
 - Look up visible Hotstar posters that expose a title and type but no title link, without requiring hover or playback. An outlined star identifies a possible IMDb title match; ambiguous searches stay blank.

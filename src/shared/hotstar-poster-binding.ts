@@ -1,11 +1,7 @@
 import type { HotstarPosterEntry } from './contracts';
 
 export function eligibleHotstarPosterTitle(title: string): boolean {
-  const words = (title.match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu) ?? [])
-    .filter(word => /\p{L}/u.test(word))
-    .map(word => word.match(/[\p{L}\p{N}]/gu)!.length);
-  return words.length === 1 ? words[0] >= 9 :
-    words.filter(length => length >= 2).length >= 2 && words.reduce((total, length) => total + length, 0) >= 8;
+  return /\p{L}/u.test(title);
 }
 
 type Binding = HotstarPosterEntry['value'];
