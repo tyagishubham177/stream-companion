@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION } from '../../src/shared/contracts';
 
 const netflixUrl = 'https://www.netflix.com/browse';
 const hotstarUrl = HOTSTAR_ORIGIN + '/in/home';
+const studioPath = '/in/studios/paramount/1271391213';
 const titleId = '1271391489';
 const pagePath = '/in/movies/fixture-title/' + titleId;
 const hotstarRef = { platformId: 'hotstar', titleId };
@@ -22,13 +23,14 @@ function request(raw: Record<string, unknown>) {
 }
 
 describe('Hotstar title links and browse routes', () => {
-  it.each(['/in/home', '/in/explore', '/in/tv/', '/in/movies', '/in/browse/genre/drama', pagePath,
+  it.each(['/in', '/in/', '/in/home', studioPath, studioPath + '/', '/in/explore', '/in/tv/', '/in/movies', '/in/browse/genre/drama', pagePath,
     '/in/shows/fixture-show/1234567890'])('recognises the catalogue route %s', path => {
     expect(hotstarBrowseSurface(new URL(path, HOTSTAR_ORIGIN))).toBe(true);
   });
 
   it.each(['/in/watch/' + titleId, pagePath + '/watch', pagePath + '/episode/1', '/in/movies/fixture-title/not-id',
-    '/in/my-account', '/in/profile', '/in/sports/cricket/12345', '/in/movies/bad%2fslug/1234'])('excludes the unsupported route %s', path => {
+    '/in/my-account', '/in/profile', '/in/sports/cricket/12345', '/in/movies/bad%2fslug/1234', '/international',
+    studioPath + '/watch', '/in/studios/paramount', '/in/studios/paramount/not-an-id', '/in/studios/bad%2fslug/1234'])('excludes the unsupported route %s', path => {
     expect(hotstarBrowseSurface(new URL(path, HOTSTAR_ORIGIN))).toBe(false);
   });
 
@@ -42,6 +44,7 @@ describe('Hotstar title links and browse routes', () => {
     expect(hotstarObservationPath(pagePath + '/')).toBeNull();
     expect(hotstarObservationPath(pagePath + '?ref=card')).toBeNull();
     expect(hotstarObservationPath('/in/movies/../movies/fixture-title/' + titleId)).toBeNull();
+    expect(hotstarObservationPath(studioPath)).toBeNull();
   });
 
   it('builds only links with a verified platform and title ID', () => {

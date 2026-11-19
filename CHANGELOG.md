@@ -2,6 +2,10 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.6.4 — Hotstar Home and studio pages
+
+- Enable ratings and title marks on Hotstar's `/in` entry point and studio catalogues such as Paramount.
+
 ## 0.6.3 — More Hotstar ratings on first view
 
 - Search short poster titles and check up to four result pages for a unique exact match. Stop early when two works share the same title and type.

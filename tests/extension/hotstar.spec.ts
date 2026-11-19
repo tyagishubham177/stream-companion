@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const hotstar = 'https://www.hotstar.com';
 const netflix = 'https://www.netflix.com';
+const studioPath = '/in/studios/paramount/1271391213';
 const moviePath = '/in/movies/fixture-film/9101';
 const showPath = '/in/shows/fixture-show/9102';
 const episodePath = `${showPath}/episode-two/9912/watch`;
@@ -165,11 +166,13 @@ test.beforeAll(async ({}, info) => {
       return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="160"><rect width="260" height="160" fill="teal"/></svg>' });
     }
     if (url.origin === hotstar) {
+      const homeRedirect = url.pathname === '/in/' && url.searchParams.has('home-redirect');
       const markup = url.pathname === moviePath ? detail : url.searchParams.has('cold-tv') ? posterCard('cold-tv-poster', coldShowAsset, coldShowTitle) :
-        url.searchParams.has('unlinked-posters') ? unlinkedRow :
+        homeRedirect || url.pathname === '/in' || url.pathname === studioPath || url.searchParams.has('unlinked-posters') ? unlinkedRow :
         url.pathname === '/in/shows' || url.searchParams.has('poster-memory') ? tvRow :
         url.pathname === '/in/tv' ? verifiedRow : `${movieTile}${showTile}${hoverTile}${nativeScoreTile}${decoys}`;
-      return route.fulfill({ contentType: 'text/html', body: document(markup) });
+      const body = document(markup + (homeRedirect ? `<script>history.replaceState(null, '', '/in/home');</script>` : ''));
+      return route.fulfill({ contentType: 'text/html', body });
     }
     if (url.origin === netflix) return route.fulfill({ contentType: 'text/html', body: document(netflixTile) });
     if (url.protocol === 'http:' || url.protocol === 'https:') return route.abort();
@@ -445,5 +448,28 @@ test('Hotstar TV rates a cold short title beyond page two without expanding the 
   await expect(target.locator('[data-sc-root="badge"]')).toHaveAttribute('data-sc-rating-origin', 'fresh');
   expect(omdbSearches.filter(title => title === coldShowTitle)).toHaveLength(3);
   expect(detailCalls.filter(id => id === coldShowId)).toHaveLength(1);
+  await page.close();
+});
+
+test('Hotstar loads on direct Home and studio URLs and restarts after SPA navigation', async () => {
+  const page = await context.newPage();
+  const target = page.locator('#unlinked-poster');
+  // The earlier Home test populates the cache. The worker must authorize each
+  // route before the content script can retrieve this rating.
+  await page.goto(`${hotstar}/in`);
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+  await page.goto(`${hotstar}/in?ref=fixture`);
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+
+  await page.goto(`${hotstar}/in/?home-redirect=1`);
+  await expect(page).toHaveURL(`${hotstar}/in/home`);
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+
+  await page.goto(`${hotstar}${studioPath}`);
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
+  await page.evaluate(playback => history.pushState({}, '', playback), `${moviePath}/watch`);
+  await expect(badge(target)).toHaveCount(0);
+  await page.evaluate(() => history.back());
+  await expect(badge(target)).toHaveText('☆ IMDb 8.4');
   await page.close();
 });

@@ -1,7 +1,8 @@
 export const HOTSTAR_ORIGIN = 'https://www.hotstar.com';
 
 const TITLE_PATH = /^\/in\/(movies|shows)\/([a-z0-9-]{1,180})\/(\d{1,12})\/?$/;
-const CATALOGUE_PATH = /^\/in\/(?:home|explore|tv|shows|movies|browse(?:\/[a-zA-Z0-9_-]{1,120}){1,4})\/?$/;
+const CATALOGUE_PATH = /^\/in(?:\/(?:home|explore|tv|shows|movies|browse(?:\/[a-zA-Z0-9_-]{1,120}){1,4}))?\/?$/;
+const STUDIO_PATH = /^\/in\/studios\/[a-z0-9][a-z0-9-]{0,179}\/\d{1,12}\/?$/;
 
 interface HotstarTitlePath {
   titleId: string;
@@ -26,5 +27,5 @@ export function hotstarObservationPath(pagePath: unknown): HotstarTitlePath | nu
 
 export function hotstarBrowseSurface(url: URL): boolean {
   if (url.origin !== HOTSTAR_ORIGIN || url.username || url.password) return false;
-  return CATALOGUE_PATH.test(url.pathname) || hotstarTitlePath(url) !== null;
+  return CATALOGUE_PATH.test(url.pathname) || STUDIO_PATH.test(url.pathname) || hotstarTitlePath(url) !== null;
 }
