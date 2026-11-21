@@ -2,6 +2,11 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## Unreleased
+
+- Show ratings and vote counts for matched titles from IMDb’s official daily dataset. OMDb supplies title matching and verification.
+- Keep saved matches usable without an OMDb key. Refresh the shared snapshot on demand and retain the last good scores if a download fails.
+
 ## 0.6.4 — Hotstar Home and studio pages
 
 - Enable ratings and title marks on Hotstar's `/in` entry point and studio catalogues such as Paramount.

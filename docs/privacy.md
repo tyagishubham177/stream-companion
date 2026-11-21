@@ -14,6 +14,10 @@ Clear ratings cache, reset saved matches and remove key are independent actions.
 
 Edition and language-label matching compares public Netflix director/cast credits with optional OMDb work credits, together with the complete film title and release year. These are public film credits, not account data. They remain in the same local metadata/score caches; no new third-party service or user credential is introduced.
 
+## IMDb ratings dataset
+
+The worker downloads the same complete ratings file from `https://datasets.imdbws.com/title.ratings.tsv.gz` whenever the local snapshot is due. Requests omit cookies and referrers and contain no streaming title identifiers or OMDb key. The host receives ordinary connection metadata such as the browser’s IP address. Individual score lookups occur locally using the matched IMDb ID. Clearing the ratings cache deletes this local snapshot.
+
 ## Local matching log (0.4.0)
 
 At the user’s request, the extension records matching evidence locally: public title IDs/names and observed year/type, automatic source outcomes, enriched movie metadata, actual OMDb search filters, candidates in returned order and failed checks. Manual correction sessions record searches, selected previews and confirmed matches. Only a successful confirmation is a correction label; previewing alone is not. Confirmations preserve the relevant automatic decision and the chosen search’s page, position and rank. Direct IMDb entry has no inferred search rank; the entered URL is not retained. Removing or resetting saved identities is recorded as a subsequent withdrawal, not silently treated as a permanent correct label.

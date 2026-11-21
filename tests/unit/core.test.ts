@@ -190,9 +190,14 @@ describe('resolution correctness and stale jobs', () => {
     release(); await result;
     expect((await repo.get<Mapping>('mappings', titleKey(observation.ref)))?.subject?.id).toBe('tt7654321');
   });
-  it('hides an older movie score beyond its monthly window and stale grace when requests fail', async () => {
+  it('preserves a legacy match and withholds the old OMDb score when the ratings snapshot is unavailable', async () => {
     await repo.put('mappings', titleKey(observation.ref), { ref: observation.ref, subject: record().subject, evidence: observation, method: 'manual', revision: 1, rejected: [], resolverVersion: 1 } satisfies Mapping);
     await repo.put('ratings', ratingKey(record().subject), { ...record(), fetchedAt: Date.now() - 38 * 86400000 });
-    expect((await setup(vi.fn().mockRejectedValue(new DeferredError('offline', 'offline'))).resolver.lookup(observation)).state.kind).toBe('deferred');
+    const { resolver, request } = setup();
+    const withDataset = new Resolver(repo, resolver.scheduler, resolver.config, undefined, undefined, undefined,
+      async details => ({ ...details, provider: 'imdb-dataset', score: null, votes: null, fetchedAt: 0, ratingIssue: { message: 'Download unavailable' } }));
+    expect((await withDataset.lookup(observation)).state).toMatchObject({ kind: 'deferred', message: 'Download unavailable',
+      record: { subject: record().subject, score: null, provider: 'imdb-dataset' } });
+    expect(request).not.toHaveBeenCalled();
   });
 });

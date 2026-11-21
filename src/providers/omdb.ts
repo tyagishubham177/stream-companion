@@ -1,4 +1,4 @@
-import type { Candidate, RatingRecord, SearchResult } from '../shared/contracts';
+import type { Candidate, OmdbTitleRecord, SearchResult } from '../shared/contracts';
 import { validateFilmCredits } from '../shared/edition';
 
 export type ProviderErrorKind = 'key' | 'quota' | 'offline' | 'provider' | 'not_found' | 'identity';
@@ -9,7 +9,7 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const text = (v: unknown, max = 300): string | undefined => typeof v === 'string' && v.length <= max ? v : undefined;
 const imdbId = (v: unknown): v is string => typeof v === 'string' && /^tt\d{7,12}$/.test(v);
 
-export function parseDetail(raw: unknown, expectedId: string, now: number): RatingRecord {
+export function parseDetail(raw: unknown, expectedId: string, now: number): OmdbTitleRecord {
   if (object(raw) && raw.Response === 'True' && raw.imdbID === expectedId && raw.Type === 'episode')
     throw new ProviderError('identity', 'Choose a movie or whole series rather than an episode.');
   if (!object(raw) || raw.Response !== 'True' || !imdbId(raw.imdbID) || raw.imdbID !== expectedId ||
@@ -35,7 +35,7 @@ export function parseDetail(raw: unknown, expectedId: string, now: number): Rati
     score, scale: 10, votes, fetchedAt: now, ...(credits ? { credits } : {}), ...(seasonCount !== undefined ? { seasonCount } : {}) };
 }
 /** A title-query response still passes the same complete ID/type/detail validation. */
-export function parseTitleDetail(raw: unknown, now: number): RatingRecord {
+export function parseTitleDetail(raw: unknown, now: number): OmdbTitleRecord {
   if (!object(raw) || !imdbId(raw.imdbID)) throw new ProviderError('provider', 'The rating service returned an unsupported title response.');
   return parseDetail(raw, raw.imdbID, now);
 }

@@ -5,7 +5,8 @@ const WEEK = 7 * DAY_MS;
 const MONTH = 30 * DAY_MS;
 
 /** OMDb exposes release years, so age classification uses UTC calendar years. */
-export function ratingFreshFor(record: Pick<RatingRecord, 'year' | 'mediaType'>, now = Date.now()): number {
+export function ratingFreshFor(record: Pick<RatingRecord, 'year' | 'mediaType'> & Partial<Pick<RatingRecord, 'provider'>>, now = Date.now()): number {
+  if (record.provider === 'imdb-dataset') return DAY_MS;
   const currentYear = new Date(now).getUTCFullYear();
   if (record.mediaType === 'movie' && /^\d{4}$/.test(record.year)) {
     const year = Number(record.year);
@@ -22,9 +23,10 @@ export function ratingFreshFor(record: Pick<RatingRecord, 'year' | 'mediaType'>,
   return WEEK;
 }
 
-export function ratingCacheState(record: Pick<RatingRecord, 'year' | 'mediaType' | 'score' | 'fetchedAt'>, now = Date.now()): 'fresh' | 'stale' | 'expired' {
+export function ratingCacheState(record: Pick<RatingRecord, 'year' | 'mediaType' | 'score' | 'fetchedAt'> & Partial<Pick<RatingRecord, 'provider'>>, now = Date.now()): 'fresh' | 'stale' | 'expired' {
   const age = now - record.fetchedAt;
   if (!Number.isFinite(age) || age < 0) return 'expired';
+  if (record.provider === 'imdb-dataset') return age < DAY_MS ? 'fresh' : record.score !== null ? 'stale' : 'expired';
   const freshFor = ratingFreshFor(record, now);
   if (age <= freshFor) return 'fresh';
   return record.score !== null && age <= freshFor + WEEK ? 'stale' : 'expired';

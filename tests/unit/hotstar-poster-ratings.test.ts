@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { clearRatingCache, HotstarPosterRatings } from '../../src/background/hotstar-poster-ratings';
 import { Repository } from '../../src/background/repository';
 import { DeferredError, type Scheduler } from '../../src/background/scheduler';
+import type { RateTitle } from '../../src/background/resolver';
 import { parseDetail, ProviderError } from '../../src/providers/omdb';
 import { DEFAULT_SETTINGS, PROTOCOL_VERSION, ratingKey, type HotstarPosterRatingRequest } from '../../src/shared/contracts';
 import { eligibleHotstarPosterTitle } from '../../src/shared/hotstar-poster-binding';
@@ -38,6 +39,21 @@ function fixture(upstream: (params: Record<string, string>) => unknown = params 
 }
 
 describe('provisional Hotstar poster ratings', () => {
+  it('honors cache-only mode enabled during an in-flight match', async () => {
+    let finishMatch!: () => void;
+    const gate = new Promise<void>(resolve => { finishMatch = resolve; });
+    const { repo, scheduler, calls, config } = fixture(async params => {
+      if (params.s) return search([candidate()]);
+      await gate;
+      return detail();
+    });
+    const rate: RateTitle = async (record, cacheOnly) => ({ ...record, score: cacheOnly ? 7.5 : 1.0 });
+    const pending = new HotstarPosterRatings(repo, scheduler, config, rate).lookup(poster(), active);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    config.settings.mockResolvedValue({ ...DEFAULT_SETTINGS, cacheOnly: true });
+    finishMatch();
+    await expect(pending).resolves.toMatchObject({ record: { score: 7.5 } });
+  });
   it('requires one exact movie candidate, rechecks the ID detail, and deduplicates work across tabs and restarts', async () => {
     const { ratings, repo, calls, config, scheduler } = fixture(params =>
       params.s ? search([candidate('tt1234567', 'The Matrix Legacy'), candidate()]) : detail());

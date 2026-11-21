@@ -9,7 +9,7 @@ function renderStatus(status: AppStatus): void {
   renderPrimaryFeatures(status.settings);
   element('features-paused').hidden = status.settings.enabled;
   element('provider').textContent = status.provider.message;
-  element('usage').textContent = `${status.requests24h} requests recorded in the last 24 hours · ${status.totalLimit} local limit`;
+  element('usage').textContent = `${status.requests24h} OMDb requests recorded in the last 24 hours · ${status.totalLimit} local limit`;
   element('cache-mode').hidden = !status.settings.cacheOnly;
 }
 

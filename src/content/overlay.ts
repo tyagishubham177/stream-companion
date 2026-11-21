@@ -2,7 +2,7 @@ import { acquirePositioning } from './positioning';
 import { claimPanel, releasePanel } from './panel-coordinator';
 import { normaliseTitle } from '../shared/identity';
 import type { TitleObservation } from '../shared/contracts';
-import { badgeText, stateDescription, type BadgeState } from '../features/ratings/presentation';
+import { badgeText, ratingAttribution, stateDescription, type BadgeState } from '../features/ratings/presentation';
 import { DAY_MS, ratingFreshFor } from '../shared/freshness';
 import { badgeStyles, overlayStyles } from './styles';
 
@@ -120,7 +120,7 @@ export class Overlay {
     close.addEventListener('click', () => this.close());
     panel.append(element('p', 'Stream Companion / Ratings', 'eyebrow'), close);
     const state = model.state;
-    const record = state?.kind === 'rated' || state?.kind === 'unrated' || state?.kind === 'poster_rated' ? state.record : null;
+    const record = state && 'record' in state ? state.record : undefined;
     const heading = element('h2', record?.title ?? model.observation.displayTitle); heading.id = 'sc-title';
     panel.append(heading);
     if (state?.kind === 'hotstar_score') {
@@ -129,12 +129,16 @@ export class Overlay {
       panel.append(score);
     }
     if (record) {
-      panel.append(element('p', `${record.year} · ${record.mediaType === 'series' ? 'Series' : 'Movie'}`, 'meta'));
-      const score = element('div', record.score === null ? 'NR' : record.score.toFixed(1), 'score');
-      if (record.score !== null) score.append(element('small', ' / 10'));
-      panel.append(score);
+      const details = [record.year, record.mediaType === 'series' ? 'Series' : record.mediaType === 'movie' ? 'Movie' : ''].filter(Boolean).join(' · ');
+      if (details) panel.append(element('p', details, 'meta'));
+      if (!record.ratingIssue) {
+        const score = element('div', record.score === null ? 'NR' : record.score.toFixed(1), 'score');
+        if (record.score !== null) score.append(element('small', ' / 10'));
+        panel.append(score);
+      }
       if (record.votes !== null) panel.append(element('p', `${record.votes.toLocaleString()} IMDb votes`, 'meta'));
-      panel.append(element('p', 'IMDb rating via OMDb', 'meta'));
+      const description = stateDescription(state);
+      if (description !== ratingAttribution(record)) panel.append(element('p', ratingAttribution(record), 'meta'));
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'wikidata')
         panel.append(element('p', 'Matched automatically by streaming title ID via Wikidata', 'meta'));
       if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'netflix')
@@ -149,8 +153,11 @@ export class Overlay {
           ? 'Matched using the title and credits shown by JioHotstar.'
           : state.matchBasis === 'seasons' ? 'Matched using JioHotstar’s title, displayed year and season count.'
             : 'Matched using JioHotstar’s film title and release year.', 'meta'));
-      panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
-      panel.append(element('p', `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
+      if (!record.ratingIssue) {
+        panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
+        panel.append(element('p', record.provider === 'imdb-dataset' ? 'The ratings download refreshes daily when needed.' :
+          `Automatic refresh after ${ratingFreshFor(record) / DAY_MS} days when visible`, 'meta'));
+      }
     }
     panel.append(element('p', stateDescription(state)));
     if (state?.kind === 'poster_rated') panel.append(element('p', 'Hotstar hasn’t confirmed this poster’s exact title. The rating is for the IMDb result shown above.'));

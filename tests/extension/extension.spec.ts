@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Reply, SearchResult, TitleObservation } from '../../src/shared/contracts';
 import type { MatchEvent } from '../../src/background/matching-log';
 import type { MarksSnapshot, MarkMutation } from '../../src/shared/marks';
+import { ratingsFixture, serveRatingsFixture } from './ratings-fixture';
 
 interface MatchingExport { events: MatchEvent[]; summary: { confirmed: number; confirmedFirstResults: number } }
 
@@ -12,6 +13,7 @@ let base: string;
 let options: Page;
 let profile: string;
 let requests: URL[] = [];
+let datasetRequests = 0;
 const identityRequests: URL[] = [];
 const publicTitleRequests: Array<{ url: URL; headers: Record<string, string>; worker: boolean }> = [];
 const networkFailures: Array<{ host: string; method: string; error: string | null }> = [];
@@ -31,10 +33,41 @@ const details = (id: string) => {
   Year: id === 'tt4000004' ? '2012' : id === 'tt0133093' ? '1999' : '2020', Type: 'movie', imdbID: id,
   imdbRating: id === 'tt4000004' ? '9.1' : id === 'tt7654321' ? 'N/A' : '8.2', imdbVotes: '1,234' };
 };
+const sharedScores = [
+  ['tt0133093', '8.2'], ['tt1234567', '8.2'], ['tt4000004', '9.1'],
+  ...editionFixtures.map(({ imdbId }) => [imdbId, '9.2'] as const),
+] as const;
+const imdbScores = ratingsFixture([...sharedScores, ['tt7654321', '7.6', 9509]]);
+const imdbScoresWithMissingTitle = ratingsFixture([
+  ...sharedScores.filter(([id]) => id !== 'tt1234567'), ['tt7654321', '7.7', 9510],
+]);
+let datasetBody = imdbScores;
 
 async function command<T>(page: Page, request: object): Promise<T> {
   const reply = await page.evaluate(async request => await chrome.runtime.sendMessage({ protocol: 1, ...request }), request) as Reply<T>;
   if (!reply.ok) throw new Error(reply.error); return reply.value;
+}
+async function ageStoredTimestamp(target: {
+  store: 'state' | 'mappings'; key: string; field: 'fetchedAt' | 'checkedAt'; nested?: 'provenance'; ageMs: number;
+}): Promise<void> {
+  await options.evaluate(async ({ store, key, field, nested, ageMs }) => await new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open('stream-companion');
+    open.onerror = () => reject(new Error('Fixture database failed'));
+    open.onsuccess = () => {
+      const db = open.result, tx = db.transaction(store, 'readwrite');
+      const entries = tx.objectStore(store);
+      const request = entries.get(key);
+      request.onsuccess = () => {
+        const entry = request.result;
+        const record = nested ? entry?.value[nested] : entry?.value;
+        if (typeof record?.[field] !== 'number') { tx.abort(); return; }
+        record[field] = Date.now() - ageMs;
+        entries.put(entry);
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(new Error(`Fixture could not age ${key}.${field}`)); };
+    };
+  }), target);
 }
 async function showOptions(worker: Worker): Promise<void> {
   // Installation may already be opening settings. Use the same public action
@@ -58,10 +91,14 @@ async function launch(): Promise<void> {
     'chrome.runtime.onInstalled.addListener(() => {}); setInterval(() => chrome.runtime.getPlatformInfo(), 20000);');
   context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true, viewport: { width: 1280, height: 900 },
     args: [`--disable-extensions-except=${extensionPath},${helperPath}`, `--load-extension=${extensionPath},${helperPath}`,
-      '--host-resolver-rules=MAP www.omdbapi.com 127.0.0.1, MAP www.netflix.com 127.0.0.1, MAP query.wikidata.org 127.0.0.1, EXCLUDE localhost'] });
+      '--host-resolver-rules=MAP * 127.0.0.1, EXCLUDE localhost', '--disable-background-networking'] });
   context.on('requestfailed', request => networkFailures.push({ host: new URL(request.url()).hostname, method: request.method(), error: request.failure()?.errorText ?? null }));
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (url.hostname === 'datasets.imdbws.com') {
+      datasetRequests++;
+      return serveRatingsFixture(route, datasetBody);
+    }
     if (url.hostname === 'query.wikidata.org') {
       identityRequests.push(url);
       expect(url.searchParams.has('apikey')).toBe(false);
@@ -162,13 +199,18 @@ test('all visible cards resolve automatically without opening titles; correction
   await expect(badges).toHaveCount(3);
   try { await expect(badges.first()).toHaveText('★ IMDb 8.2'); }
   catch (error) { throw new Error(JSON.stringify({ identityCalls: identityRequests.length, networkFailures }), { cause: error }); }
-  await expect(badges.nth(1)).toHaveText('IMDb NR');
+  await expect(badges.nth(1)).toHaveText('★ IMDb 7.6');
   await expect(badges.nth(2)).toHaveText('★ IMDb 8.2');
+  expect(datasetRequests).toBe(1); // One shared download, including the title whose OMDb score is N/A.
   expect(requests).toHaveLength(3); // Key test + two unique IMDb IDs, despite a duplicate card.
   expect(identityRequests).toHaveLength(1);
   expect(identityRequests[0].searchParams.get('query')).toContain('1001');
   expect(identityRequests[0].searchParams.get('query')).toContain('1002');
   expect(requests.slice(1).every(url => url.searchParams.has('i') && !url.searchParams.has('s'))).toBe(true);
+  await badges.nth(1).click();
+  await expect(browse.getByRole('dialog')).toContainText(/IMDb ratings dataset/i);
+  await expect(browse.getByRole('dialog')).toContainText('9,509 IMDb votes');
+  await browse.keyboard.press('Escape');
   await badges.first().click();
   await expect(browse.getByRole('dialog')).toBeVisible();
   await expect(browse.getByRole('dialog')).toContainText('Matched automatically by streaming title ID via Wikidata');
@@ -641,42 +683,33 @@ test('edition aliases need matching director and two cast members before rating 
   await browse.close();
 });
 
-test('age-aware caches avoid repeated fetches for a week or month and deduplicate refreshes', async () => {
-  async function age(days: number, year: string): Promise<void> {
-    await options.evaluate(async ({ days, year }) => await new Promise<void>((resolve, reject) => {
-      const open = indexedDB.open('stream-companion');
-      open.onerror = () => reject(new Error('Fixture database failed'));
-      open.onsuccess = () => {
-        const db = open.result, tx = db.transaction('ratings', 'readwrite');
-        const store = tx.objectStore('ratings');
-        const key = JSON.stringify(['omdb', 'imdb', 'imdb', 'tt1234567']);
-        const request = store.get(key);
-        request.onsuccess = () => {
-          const entry = request.result;
-          entry.value.fetchedAt = Date.now() - days * 86400000;
-          entry.value.year = year; store.put(entry);
-        };
-        tx.oncomplete = () => { db.close(); resolve(); };
-        tx.onerror = () => { db.close(); reject(new Error('Fixture cache update failed')); };
-      };
-    }), { days, year });
-  }
+test('a daily snapshot refresh updates all badges once and retains the IMDb link for a missing score', async () => {
   const browse = await context.newPage();
-  const count = requests.length;
-  await age(20, '2020');
-  await browse.goto('https://www.netflix.com/browse');
-  await expect(browse.locator('.badge:visible').filter({ hasText: '8.2' })).toHaveCount(2);
-  expect(requests.length).toBe(count);
-  await age(6, String(new Date().getUTCFullYear())); await browse.reload();
-  await expect(browse.locator('.badge:visible').filter({ hasText: '8.2' })).toHaveCount(2);
-  expect(requests.length).toBe(count);
-  await age(8, String(new Date().getUTCFullYear())); await browse.reload();
-  await expect(browse.locator('.badge:visible').filter({ hasText: '8.2' })).toHaveCount(2);
-  expect(requests.length).toBe(count + 1);
-  await age(31, '2020'); await browse.reload();
-  await expect(browse.locator('.badge:visible').filter({ hasText: '8.2' })).toHaveCount(2);
-  expect(requests.length).toBe(count + 2);
-  await browse.close();
+  const omdbBefore = requests.length;
+  const datasetBefore = datasetRequests;
+  try {
+    await browse.goto('https://www.netflix.com/browse');
+    const badges = browse.locator('[data-sc-root="badge"] .badge:visible');
+    await expect(badges.nth(1)).toHaveText('★ IMDb 7.6');
+    expect(requests.length).toBe(omdbBefore);
+    expect(datasetRequests).toBe(datasetBefore);
+
+    await ageStoredTimestamp({ store: 'state', key: 'imdb-ratings:snapshot', field: 'fetchedAt', ageMs: 25 * 60 * 60 * 1000 });
+    datasetBody = imdbScoresWithMissingTitle;
+    await browse.reload();
+    await expect(badges.nth(0)).toHaveText('IMDb NR');
+    await expect(badges.nth(1)).toHaveText('★ IMDb 7.7');
+    await expect(badges.nth(2)).toHaveText('IMDb NR');
+    expect(datasetRequests).toBe(datasetBefore + 1);
+    expect(requests.length).toBe(omdbBefore);
+    await badges.nth(0).click();
+    const details = browse.getByRole('dialog');
+    await expect(details).toContainText('Rating unavailable in the IMDb dataset');
+    await expect(details.getByRole('link', { name: 'Open IMDb' })).toHaveAttribute('href', 'https://www.imdb.com/title/tt1234567/');
+  } finally {
+    datasetBody = imdbScores;
+    await browse.close();
+  }
 });
 
 test('cache clear preserves matches, usage and cooldown; invalid messages stay local', async () => {
@@ -750,6 +783,7 @@ test('extension reload retires stale content scripts and offers a single working
   await expect(browse.locator('[data-sc-root="badge"] .badge').first()).toHaveText('★ IMDb 8.2');
   const requestCount = requests.length;
   const identityCount = identityRequests.length;
+  const datasetCount = datasetRequests;
   // Use the actual trusted extension API. The timer lets evaluation return
   // before Chrome destroys the options page and invalidates the old scripts.
   await options.evaluate(() => { setTimeout(() => chrome.runtime.reload(), 0); });
@@ -796,13 +830,56 @@ test('extension reload retires stale content scripts and offers a single working
   await expect(reconnect).toHaveCount(0);
   await expect(browse.locator('[data-sc-root="badge"]')).toHaveCount(3);
   await expect(browse.locator('[data-sc-root="badge"] .badge').first()).toHaveText('★ IMDb 8.2');
-  await expect(browse.locator('[data-sc-root="badge"] .badge').nth(1)).toHaveText('IMDb NR');
+  await expect(browse.locator('[data-sc-root="badge"] .badge').nth(1)).toHaveText('★ IMDb 7.6');
   expect(problems).toEqual([]);
   expect(requests.length).toBe(requestCount); expect(identityRequests.length).toBe(identityCount);
+  expect(datasetRequests).toBe(datasetCount);
   const after = await command<typeof before>(options, { type: 'GET_STATUS' });
   expect(after.keyConfigured).toBe(true); expect(after.ratings).toBe(before.ratings);
   expect(after.mappings).toBe(before.mappings); expect(after.requests24h).toBe(before.requests24h);
   await browse.close();
+});
+
+test('saved matches get a fresh IMDb snapshot after removing the key, including an older Wikidata match', async () => {
+  await command(options, { type: 'REMOVE_API_KEY' });
+  await command(options, { type: 'CLEAR_RATING_CACHE' });
+  await ageStoredTimestamp({ store: 'mappings', key: JSON.stringify(['netflix', '1002']),
+    field: 'checkedAt', nested: 'provenance', ageMs: 31 * 24 * 60 * 60 * 1000 });
+  const omdbBefore = requests.length;
+  const datasetBefore = datasetRequests;
+  const browse = await context.newPage();
+  try {
+    await browse.goto('https://www.netflix.com/browse');
+    const badges = browse.locator('[data-sc-root="badge"] .badge:visible');
+    await expect(badges.first()).toHaveText('★ IMDb 8.2');
+    await expect(badges.nth(1)).toHaveText('★ IMDb 7.6');
+    expect(requests.length).toBe(omdbBefore);
+    expect(datasetRequests).toBe(datasetBefore + 1);
+  } finally {
+    await browse.close();
+  }
+});
+
+test('saved titles in cache-only mode can display offline scores and distinguish a cleared snapshot', async () => {
+  await command(options, { type: 'UPDATE_SETTINGS', settings: { cacheOnly: true } });
+  const omdbBefore = requests.length;
+  const datasetBefore = datasetRequests;
+  const browse = await context.newPage();
+  try {
+    await browse.goto('https://www.netflix.com/browse');
+    const badge = browse.locator('[data-sc-root="badge"] .badge:visible').first();
+    await expect(badge).toHaveText('★ IMDb 8.2');
+    await command(options, { type: 'CLEAR_RATING_CACHE' });
+    await expect(badge).toHaveText('IMDb !');
+    await badge.click();
+    await expect(browse.getByRole('dialog').getByRole('link', { name: 'Open IMDb' }))
+      .toHaveAttribute('href', 'https://www.imdb.com/title/tt1234567/');
+    expect(requests.length).toBe(omdbBefore);
+    expect(datasetRequests).toBe(datasetBefore);
+  } finally {
+    await browse.close();
+    await command(options, { type: 'UPDATE_SETTINGS', settings: { cacheOnly: false } });
+  }
 });
 
 test('actual MV3 marks work without a key across search and discovery, survive restart and toggle independently', async () => {

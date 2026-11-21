@@ -23,12 +23,12 @@ function renderStatus(status: AppStatus, updatePreferences = false): void {
   renderPrimaryFeatures(status.settings);
   element('features-paused').hidden = status.settings.enabled;
   const provider = element('provider-label');
-  provider.textContent = status.provider.kind === 'ready' ? 'Configured' : status.provider.kind === 'setup' ? 'Setup needed' : 'Lookups paused';
+  provider.textContent = status.provider.kind === 'ready' ? 'Configured' : status.provider.kind === 'setup' ? 'Key not configured' : 'Matching paused';
   provider.dataset.tone = status.provider.kind;
   element('provider-message').textContent = status.provider.message;
   element('key-state').textContent = status.keyConfigured
     ? 'A key is saved in this browser. Enter a new key above to replace it.'
-    : 'No key saved. Activate an OMDb key, then save and test it here.';
+    : 'No key saved. Add an OMDb key here to match new titles.';
   element<HTMLButtonElement>('test-key').disabled = !status.keyConfigured;
   element<HTMLButtonElement>('remove-key').disabled = !status.keyConfigured;
   element('usage').textContent = `${status.requests24h} / ${status.totalLimit} local limit`;
@@ -107,7 +107,7 @@ element<HTMLButtonElement>('test-key').addEventListener('click', () => {
 });
 
 element<HTMLButtonElement>('remove-key').addEventListener('click', () => {
-  if (!window.confirm('Remove the OMDb key from this browser? Cached ratings and saved matches will remain.')) return;
+  if (!window.confirm('Remove the OMDb key from this browser? IMDb ratings for saved matches will remain available.')) return;
   void action(element<HTMLButtonElement>('remove-key'), async () => {
     await rpc<unknown>({ type: 'REMOVE_API_KEY' });
     keyInput.value = '';

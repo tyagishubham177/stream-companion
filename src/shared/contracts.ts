@@ -25,12 +25,15 @@ export interface TitleObservation {
 }
 export interface RatingRecord {
   subject: ExternalTitleRef;
-  source: 'imdb'; provider: 'omdb';
-  title: string; year: string; mediaType: 'movie' | 'series';
+  source: 'imdb'; provider: 'omdb' | 'imdb-dataset';
+  title: string; year: string; mediaType: MediaType;
   score: number | null; scale: 10; votes: number | null; fetchedAt: number;
   seasonCount?: number;
   credits?: FilmCredits;
+  ratingIssue?: { message: string; retryAfter?: number };
 }
+export type MatchedTitleDetails = Pick<RatingRecord, 'title' | 'year'> & { mediaType: 'movie' | 'series' };
+export type OmdbTitleRecord = RatingRecord & MatchedTitleDetails & { provider: 'omdb' };
 export interface Candidate { id: string; title: string; year: string; mediaType: 'movie' | 'series' }
 export interface SearchResult { candidates: Candidate[]; total: number; page: number }
 export interface CorrectionSearchResult extends SearchResult { searchId: string }
@@ -38,6 +41,7 @@ export interface Mapping {
   ref: PlatformTitleRef; subject?: ExternalTitleRef;
   revision: number; method: 'manual' | 'automatic';
   evidence: TitleObservation; resolverVersion: number; rejected: string[];
+  details?: MatchedTitleDetails;
   provenance?: { source: 'wikidata'; entityIds: string[]; checkedAt: number } | { source: PlatformMetadataSource; checkedAt: number; matchBasis?: 'credits' | 'seasons' };
 }
 export type DeferredReason = 'budget' | 'quota' | 'offline' | 'provider' | 'key' | 'storage' | 'busy' | 'clock';
@@ -45,7 +49,7 @@ export type LookupState =
   | { kind: 'rated'; record: RatingRecord; stale: boolean; method: 'manual' | 'automatic'; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
   | { kind: 'unrated'; record: RatingRecord; identitySource?: 'wikidata' | PlatformMetadataSource; matchBasis?: 'credits' | 'seasons' }
   | { kind: 'needs_match'; reason: 'insufficient_evidence' | 'ambiguous' | 'contradiction' | 'not_found' }
-  | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string }
+  | { kind: 'deferred'; reason: DeferredReason; retryAfter?: number; message: string; record?: RatingRecord }
   | { kind: 'setup_required' }
   | { kind: 'disabled' };
 export interface LookupResult {

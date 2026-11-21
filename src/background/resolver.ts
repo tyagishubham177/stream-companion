@@ -1,4 +1,4 @@
-import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type TitleObservation, type LookupResult, type RatingRecord, type LookupState, type Candidate, type SearchResult, type PlatformMetadataSource } from '../shared/contracts';
+import { RESOLVER_VERSION, titleKey, ratingKey, type Mapping, type MatchedTitleDetails, type TitleObservation, type LookupResult, type OmdbTitleRecord, type RatingRecord, type LookupState, type Candidate, type SearchResult, type PlatformMetadataSource } from '../shared/contracts';
 import { contradicts, hasStrongEvidence, normaliseTitle, observationFingerprint, supportedCandidate, usableYear } from '../shared/identity';
 import { corroboratesEdition, corroboratesSeriesCast, editionTitleMatches, filmSearchAlias, plainTranslationAlias, validateFilmCredits } from '../shared/edition';
 import { ratingCacheState } from '../shared/freshness';
@@ -14,6 +14,11 @@ interface Resolution { expiresAt: number; state?: LookupState; attempts: number;
 interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
 interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean, requireCredits?: boolean): Promise<NetflixMetadataResult> }
 type MatchBasis = 'credits' | 'seasons';
+export type RateTitle = (record: RatingRecord, cacheOnly: boolean) => Promise<RatingRecord>;
+
+export function matchDetails({ title, year, mediaType }: MatchedTitleDetails): MatchedTitleDetails {
+  return { title, year, mediaType };
+}
 
 function catalogueSeasonEvidence(observation: TitleObservation): { year: number; count: number } | undefined {
   const count = observation.seasonCount;
@@ -33,7 +38,8 @@ function seriesYears(year: string): { start: number; end?: number } | undefined 
 export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
-    private readonly directIds?: DirectIds, private readonly metadata?: Metadata, private readonly matchingLog?: MatchingLog) {}
+    private readonly directIds?: DirectIds, private readonly metadata?: Metadata, private readonly matchingLog?: MatchingLog,
+    private readonly rateTitle?: RateTitle) {}
   private async saveResolution(key: string, value: Resolution, trace: MatchStep[], logEpoch: number): Promise<void> {
     const loggingEnabled = (await this.config.settings()).matchingLogEnabled !== false;
     await this.repo.transaction(['resolutions', 'state'], async tx => {
@@ -41,9 +47,9 @@ export class Resolver {
       txPut(tx, 'resolutions', key, { ...value, ...(loggingEnabled && this.matchingLog?.recording !== false && currentLogEpoch === logEpoch ? { trace, traceEpoch: logEpoch } : {}) });
     });
   }
-  async detail(id: string, explicit: boolean, retest = false): Promise<RatingRecord> {
+  async detail(id: string, explicit: boolean, retest = false): Promise<OmdbTitleRecord> {
     if (!retest) {
-      const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
+      const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
       if (cached && ratingCacheState(cached) === 'fresh') return cached;
     }
     const record = await this.scheduler.request({ i: id, plot: 'short' }, explicit, raw => parseDetail(raw, id, Date.now()), retest);
@@ -61,13 +67,20 @@ export class Resolver {
     const demands = new Set([demand]);
     const isDemandActive = () => [...demands].some(test => test());
     const steps: MatchStep[] = [{ stage: 'lookup', outcome: refresh ? 'explicit_refresh' : 'automatic', evidence: o }];
-    const result: Promise<LookupResult> = this.resolve(o, mapping, refresh, resetEpoch, isDemandActive, steps, logEpoch).then(async state => {
+    const result: Promise<LookupResult> = this.resolve(o, mapping, refresh, resetEpoch, isDemandActive, steps, logEpoch).then(async match => {
+      let state = match;
+      if (this.rateTitle && (match.kind === 'rated' || match.kind === 'unrated')) {
+        const settings = await this.config.settings();
+        const record = await this.rateTitle(match.record, settings.cacheOnly || !settings.enabled || !settings.ratingsEnabled || !isDemandActive());
+        const method = match.kind === 'rated' ? match.method : mapping?.subject?.id === record.subject.id ? mapping.method : 'automatic';
+        state = stateFromRecord(record, method, match.identitySource, match.matchBasis);
+      }
       const value = { state, fingerprint, revision: rev };
       const current = await this.repo.get<Mapping>('mappings', titleKey(o.ref));
       const currentRevision = current?.revision ?? 0;
       const changed = currentRevision !== rev;
       const sameAcceptedAutomatic = current?.method === 'automatic' && current.subject &&
-        (value.state.kind === 'rated' || value.state.kind === 'unrated') && current.subject.id === value.state.record.subject.id;
+        (match.kind === 'rated' || match.kind === 'unrated') && current.subject.id === match.record.subject.id;
       if ((await this.repo.get<number>('state', 'mappingEpoch') ?? 0) !== resetEpoch || (changed && !sameAcceptedAutomatic)) {
         // The caller will reattach after the mapping invalidation broadcast.
         return { state: { kind: 'needs_match', reason: 'contradiction' }, fingerprint, revision: currentRevision };
@@ -84,7 +97,6 @@ export class Resolver {
   private async resolve(o: TitleObservation, mapping: Mapping | undefined, refresh: boolean, resetEpoch: number, demand: () => boolean, steps: MatchStep[], logEpoch: number): Promise<LookupState> {
     const settings = await this.config.settings();
     if (!settings.enabled || settings.ratingsEnabled === false) return { kind: 'disabled' };
-    let cache: RatingRecord | undefined;
     let directSnapshot: DirectIdResult | undefined;
     let metadataSnapshot: NetflixMetadataResult | undefined;
     const revalidateSource = mapping?.method === 'automatic' && mapping.provenance?.source === 'wikidata' &&
@@ -105,37 +117,33 @@ export class Resolver {
           txPut(tx, 'mappings', titleKey(o.ref), { ...current, revision: current.revision + 1, provenance: { ...current.provenance, checkedAt } });
       });
     }
-    // A temporary source outage does not invalidate a previously supported identity/cache.
-    if (mapping?.subject && !(revalidateSource && directSnapshot?.kind !== 'deferred') && !metadataChanged) {
+    const directReconfirmed = directSnapshot?.kind === 'matched' && directSnapshot.imdbId === mapping?.subject?.id ? directSnapshot : undefined;
+    // A temporary source outage does not invalidate a previously supported identity.
+    if (mapping?.subject && (!revalidateSource || directSnapshot?.kind === 'deferred' || directReconfirmed) && !metadataChanged) {
       steps.push({ stage: 'saved_mapping', outcome: mapping.method });
       // V1 decisions remain compatible; new lookup attempts use the current resolver version.
       if (mapping.method === 'automatic' && (mapping.resolverVersion < 1 || mapping.resolverVersion > RESOLVER_VERSION)) return { kind: 'needs_match', reason: 'insufficient_evidence' };
       if ((o.mediaType !== 'unknown' && mapping.evidence.mediaType !== 'unknown' && o.mediaType !== mapping.evidence.mediaType) ||
         (usableYear(o) !== undefined && usableYear(mapping.evidence) !== undefined && usableYear(o) !== usableYear(mapping.evidence)))
         return { kind: 'needs_match', reason: 'contradiction' };
-      cache = await this.repo.get<RatingRecord>('ratings', ratingKey(mapping.subject));
-      if (cache && contradicts(o, cache)) return { kind: 'needs_match', reason: 'contradiction' };
-      if (cache && !refresh && ratingCacheState(cache) === 'fresh') {
-        steps.push({ stage: 'rating_cache', outcome: 'fresh' });
-        return stateFromMapping(cache, mapping);
+      const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey(mapping.subject));
+      const details = mapping.details ?? cached;
+      if (details && contradicts(o, details)) return { kind: 'needs_match', reason: 'contradiction' };
+      if (directReconfirmed && mapping.provenance?.source === 'wikidata') {
+        const provenance = { source: 'wikidata' as const, entityIds: directReconfirmed.entityIds, checkedAt: directReconfirmed.checkedAt };
+        await this.repo.transaction(['mappings', 'state'], async tx => {
+          const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
+          if (current?.revision === mapping.revision && (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) === resetEpoch)
+            txPut(tx, 'mappings', titleKey(o.ref), { ...current, revision: current.revision + 1, provenance });
+        });
       }
-      if (settings.cacheOnly) return cachedOrDeferred(cache, mapping.method, new DeferredError('provider', 'Cache-only mode is on. Turn it off in Settings to fetch ratings.'));
-      if (!(await this.config.credential())) return cachedOrSetup(cache, mapping.method);
-      try {
-        if (refresh) {
-          await this.repo.transaction(['state'], async tx => {
-            const key = `refresh:${titleKey(o.ref)}`;
-            const last = await txGet<number>(tx, 'state', key) ?? 0;
-            if (Date.now() < last + 60000) throw new DeferredError('busy', 'Wait a minute before refreshing this title again.', last + 60000);
-            txPut(tx, 'state', key, Date.now());
-          });
-        }
-        const id = mapping.subject.id;
-        const record = await this.scheduler.request({ i: id, plot: 'short' }, refresh, raw => parseDetail(raw, id, Date.now()), false, demand);
-        await this.repo.put('ratings', ratingKey(record.subject), record);
-        if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
-        return stateFromMapping(record, mapping);
-      } catch (error) { return cachedOrDeferred(cache, mapping.method, error); }
+      const year = usableYear(mapping.evidence) ?? usableYear(o);
+      const record: RatingRecord = cached ?? { subject: mapping.subject, source: 'imdb', provider: 'imdb-dataset',
+        ...(details ?? { title: mapping.evidence.displayTitle, year: year === undefined ? '' : String(year),
+          mediaType: mapping.evidence.mediaType === 'unknown' ? o.mediaType : mapping.evidence.mediaType }),
+        score: null, votes: null, fetchedAt: 0, scale: 10 };
+      if (cached) steps.push({ stage: 'rating_cache', outcome: 'saved_details' });
+      return stateFromMapping(record, mapping);
     }
     if (refresh || settings.automaticMatching === false) return { kind: 'needs_match', reason: 'insufficient_evidence' };
     if (!(await this.config.credential())) return { kind: 'setup_required' };
@@ -164,7 +172,7 @@ export class Resolver {
           steps.push({ stage: 'resolution_cache', outcome: 'previous_stop' }); return invalid.state;
         }
         try {
-          const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: direct.imdbId }));
+          const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id: direct.imdbId }));
           const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
             await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false, raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand, true);
           await this.repo.put('ratings', ratingKey(record.subject), record);
@@ -175,7 +183,7 @@ export class Resolver {
             if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) ||
               (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(direct.imdbId)) return false;
             txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
-              evidence: o, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
+              evidence: o, details: matchDetails(record), method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
               provenance: { source: 'wikidata', entityIds: direct.entityIds, checkedAt: direct.checkedAt } } satisfies Mapping);
             return true;
           }, true);
@@ -189,7 +197,7 @@ export class Resolver {
             await this.saveResolution(validationKey, { state, attempts: 1, expiresAt: Date.now() + DAY }, steps, logEpoch);
             return state;
           }
-          return cachedOrDeferred(undefined, 'automatic', error);
+          return lookupDeferred(error);
         }
       }
       if (o.ref.platformId === 'netflix' && (!hasStrongEvidence(o) || metadataChanged) && direct.kind === 'missing' && this.metadata) {
@@ -268,13 +276,13 @@ export class Resolver {
         return years && (years.start === catalogueYear || years.end === catalogueYear) ? [{ candidate, years }] : [];
       });
     };
-    const detailWithCredits = async (id: string): Promise<RatingRecord> => {
-      const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
+    const detailWithCredits = async (id: string): Promise<OmdbTitleRecord> => {
+      const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id }));
       const record = cached && ratingCacheState(cached) === 'fresh' && validateFilmCredits(cached.credits) ? cached :
         await automaticRequest({ i: id, plot: 'short' }, raw => parseDetail(raw, id, Date.now()));
       await this.repo.put('ratings', ratingKey(record.subject), record); return record;
     };
-    const accept = async (record: RatingRecord, matchBasis?: MatchBasis): Promise<LookupState> => {
+    const accept = async (record: OmdbTitleRecord, matchBasis?: MatchBasis): Promise<LookupState> => {
       if (mapping?.rejected.includes(record.subject.id) || contradicts(o, record)) return await save({ kind: 'needs_match', reason: 'contradiction' });
       if (matchBasis === 'credits') evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
       const source = matchBasis === 'seasons' || metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
@@ -282,7 +290,7 @@ export class Resolver {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(record.subject.id)) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
-          evidence, method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
+          evidence, details: matchDetails(record), method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
           ...(source ? { provenance: { source, checkedAt: metadataMatch?.checkedAt ?? Date.now(), ...(matchBasis ? { matchBasis } : {}) } } : {}) } satisfies Mapping);
         return true;
       });
@@ -315,7 +323,7 @@ export class Resolver {
         const seriesCandidates = result.candidates.filter(candidate => candidate.mediaType === 'series' &&
           [evidence.displayTitle, ...(evidence.aliases ?? [])].some(title => normaliseTitle(title) === normaliseTitle(candidate.title)) && !mapping?.rejected.includes(candidate.id));
         if (!seriesCandidates.length || seriesCandidates.length > 2) return await save({ kind: 'needs_match', reason: seriesCandidates.length ? 'ambiguous' : 'not_found' });
-        const verified: RatingRecord[] = [];
+        const verified: OmdbTitleRecord[] = [];
         for (const candidate of seriesCandidates) {
           const record = await detailWithCredits(candidate.id);
           const supported = record.mediaType === 'series' && normaliseTitle(candidate.title) === normaliseTitle(record.title) &&
@@ -330,10 +338,10 @@ export class Resolver {
         const title = normaliseTitle(evidence.displayTitle);
         const candidates = seasonCandidates(result, year);
         if (!candidates.length || candidates.length > 2) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
-        const verified: RatingRecord[] = [];
+        const verified: OmdbTitleRecord[] = [];
         let unknownCount = false;
         for (const { candidate, years } of candidates) {
-          const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: candidate.id }));
+          const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id: candidate.id }));
           const record = cached && ratingCacheState(cached) === 'fresh' && cached.seasonCount !== undefined ? cached :
             await automaticRequest({ i: candidate.id, plot: 'short' }, raw => parseDetail(raw, candidate.id, Date.now()));
           await this.repo.put('ratings', ratingKey(record.subject), record);
@@ -353,7 +361,7 @@ export class Resolver {
       }
       let candidates = result.candidates.filter(c => supportedCandidate(evidence, c) && !mapping?.rejected.includes(c.id));
       if (candidates.length === 2 && metadataMatch && !/[()]/.test(metadataMatch.title) && corroboratesEdition(metadataMatch.credits, metadataMatch.credits)) {
-        const verified: RatingRecord[] = [];
+        const verified: OmdbTitleRecord[] = [];
         for (const candidate of candidates) {
           const record = await detailWithCredits(candidate.id);
           const supported = supportedCandidate(evidence, candidateRecord(record)) && corroboratesEdition(metadataMatch.credits, record.credits);
@@ -401,7 +409,7 @@ export class Resolver {
       }
       if (candidates.length !== 1) return await save({ kind: 'needs_match', reason: candidates.length ? 'ambiguous' : 'not_found' });
       const selectedId = candidates[0].id;
-      const cached = await this.repo.get<RatingRecord>('ratings', ratingKey({ namespace: 'imdb', id: selectedId }));
+      const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id: selectedId }));
       const record = cached && ratingCacheState(cached) === 'fresh' && (!creditMatch || validateFilmCredits(cached.credits)) ? cached :
         await automaticRequest({ i: selectedId, plot: 'short' }, raw => parseDetail(raw, selectedId, Date.now()));
       await this.repo.put('ratings', ratingKey(record.subject), record);
@@ -413,7 +421,7 @@ export class Resolver {
       return await accept(record, creditMatch ? 'credits' : undefined);
     } catch (error) {
       if (error instanceof ProviderError && error.kind === 'not_found') return await save({ kind: 'needs_match', reason: 'not_found' });
-      return cachedOrDeferred(undefined, 'automatic', error);
+      return lookupDeferred(error);
     }
   }
 }
@@ -428,6 +436,7 @@ export function candidateChecks(evidence: TitleObservation, candidate: Candidate
   return checks.length ? checks : ['supported'];
 }
 export function stateFromRecord(record: RatingRecord, method: 'manual' | 'automatic', identitySource?: 'wikidata' | PlatformMetadataSource, matchBasis?: MatchBasis): LookupState {
+  if (record.ratingIssue) return { kind: 'deferred', reason: 'provider', ...record.ratingIssue, record };
   const source = { ...(identitySource ? { identitySource } : {}), ...(matchBasis ? { matchBasis } : {}) };
   if (record.score === null) return { kind: 'unrated', record, ...source };
   return { kind: 'rated', record, stale: ratingCacheState(record) !== 'fresh', method, ...source };
@@ -436,12 +445,7 @@ function stateFromMapping(record: RatingRecord, mapping: Mapping): LookupState {
   return stateFromRecord(record, mapping.method, mapping.provenance?.source,
     mapping.provenance?.source !== 'wikidata' ? mapping.provenance?.matchBasis : undefined);
 }
-function cachedOrSetup(cache: RatingRecord | undefined, method: 'manual' | 'automatic'): LookupState {
-  if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);
-  return { kind: 'setup_required' };
-}
-function cachedOrDeferred(cache: RatingRecord | undefined, method: 'manual' | 'automatic', error: unknown): LookupState {
-  if (cache && cache.score !== null && ratingCacheState(cache) !== 'expired') return stateFromRecord(cache, method);
+function lookupDeferred(error: unknown): LookupState {
   if (error instanceof DeferredError) return { kind: 'deferred', reason: error.reason, retryAfter: error.retryAfter, message: error.message };
   if (error instanceof ProviderError) return { kind: 'deferred', reason: error.kind === 'not_found' || error.kind === 'identity' ? 'provider' : error.kind, message: error.message };
   return { kind: 'deferred', reason: 'storage', message: 'Local storage failed. New lookups are paused.' };

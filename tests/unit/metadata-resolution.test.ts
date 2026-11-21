@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, ratingKey, titleKey, type Mapping, type TitleObservation } from '../../src/shared/contracts';
 import { observationFingerprint } from '../../src/shared/identity';
-import { Resolver } from '../../src/background/resolver';
+import { Resolver, type RateTitle } from '../../src/background/resolver';
 import { Repository } from '../../src/background/repository';
 import type { Configuration } from '../../src/background/config';
 import type { Scheduler } from '../../src/background/scheduler';
@@ -25,7 +25,7 @@ const search = (film = films[0]) => ({ Response: 'True', totalResults: '1', Sear
 let repo: Repository;
 beforeEach(() => { repo = new Repository(`metadata-resolution-${crypto.randomUUID()}`); });
 
-function setup(film = films[0], source: NetflixMetadataResult = metadata(film), direct: DirectIdResult = { kind: 'missing' }) {
+function setup(film = films[0], source: NetflixMetadataResult = metadata(film), direct: DirectIdResult = { kind: 'missing' }, rateTitle?: RateTitle) {
   const resolveMetadata = vi.fn(async (): Promise<NetflixMetadataResult> => source);
   const resolveDirect = vi.fn(async (): Promise<DirectIdResult> => direct);
   const request = vi.fn(async (params: Record<string, string>, _explicit: boolean, decode: (raw: unknown) => unknown) => decode(params.s ? search(film) : detail(film)));
@@ -33,7 +33,7 @@ function setup(film = films[0], source: NetflixMetadataResult = metadata(film), 
     settings: async () => ({ ...DEFAULT_SETTINGS }),
     credential: async () => ({ key: 'synthetic-key', id: 'synthetic-credential', version: 1 }),
   } as unknown as Configuration;
-  const resolver = new Resolver(repo, { request } as unknown as Scheduler, config, { resolve: resolveDirect }, { resolve: resolveMetadata });
+  const resolver = new Resolver(repo, { request } as unknown as Scheduler, config, { resolve: resolveDirect }, { resolve: resolveMetadata }, undefined, rateTitle);
   return { resolver, resolveMetadata, resolveDirect, request, config };
 }
 function deferred<T>() {
@@ -258,11 +258,15 @@ describe('public metadata relationship revalidation', () => {
     expect(resolveMetadata).not.toHaveBeenCalled(); expect(resolveDirect).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
   });
 
-  it('keeps explicit Refresh as a rating-only request', async () => {
-    await seed(); const { resolver, resolveMetadata, request } = setup();
-    expect(await resolver.lookup(observation(), true, 1)).toMatchObject({ revision: 1, state: { kind: 'rated' } });
-    expect(resolveMetadata).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls[0][0]).toEqual({ i: films[0].id, plot: 'short' }); expect(request.mock.calls[0][1]).toBe(true);
+  it('refreshes a score through the dataset without repeating Netflix metadata checks', async () => {
+    await seed();
+    const { resolver, resolveMetadata, resolveDirect, request } = setup(undefined, undefined, undefined,
+      async record => ({ ...record, provider: 'imdb-dataset', score: 8.2, votes: 321, fetchedAt: Date.now() }));
+    expect(await resolver.lookup(observation(), true, 1)).toMatchObject({ revision: 1, state: { kind: 'rated',
+      record: { subject: { id: films[0].id }, provider: 'imdb-dataset', score: 8.2 } } });
+    expect(resolveMetadata).not.toHaveBeenCalled();
+    expect(resolveDirect).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('uses an expired-source mapping in cache-only mode without revalidating it', async () => {

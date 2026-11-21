@@ -1,4 +1,5 @@
 import { platformLabel } from '../platforms/links';
+import { ratingAttribution } from '../features/ratings/presentation';
 import { rpc } from '../shared/client';
 import type { CorrectionContext, CorrectionSearchResult, LookupResult, RatingRecord } from '../shared/contracts';
 import { dateLabel, element, imdbLink, message, notice, streamingLink } from './ui';
@@ -46,12 +47,15 @@ async function preview(input: string, searchId?: string): Promise<void> {
   element('preview-heading').textContent = record.title;
   element('preview-hint').hidden = true;
   element('preview-detail').textContent = `${record.year} · ${record.mediaType === 'series' ? 'Series' : 'Movie'}`;
-  element('preview-score').textContent = record.score === null ? 'NR' : record.score.toFixed(1);
+  element('preview-score').textContent = record.ratingIssue ? '—' : record.score === null ? 'NR' : record.score.toFixed(1);
   element('preview-votes').textContent = record.votes === null ? 'Vote count unavailable' : `${record.votes.toLocaleString()} votes`;
-  element('preview-fetched').textContent = `IMDb rating via OMDb · Fetched ${dateLabel(record.fetchedAt)}`;
+  element('preview-fetched').textContent = record.ratingIssue ? ratingAttribution(record) :
+    `${ratingAttribution(record)} · Fetched ${dateLabel(record.fetchedAt)}`;
   element('preview-link').replaceChildren(imdbLink(record.subject.id));
   element('preview').hidden = false;
-  notice(record.score === null ? 'This title has no usable rating from OMDb. You can still confirm its identity.' : 'Review the title, year and type, then confirm your match.');
+  notice(record.ratingIssue ? `${record.ratingIssue.message} You can still confirm the match.` :
+    record.score === null ? 'This title has no rating in the IMDb dataset. You can still confirm the match.' :
+      'Review the title, year and type, then confirm your match.');
 }
 
 async function search(query: string, page: number): Promise<void> {
@@ -109,7 +113,7 @@ element('confirm').addEventListener('click', () => {
   if (!context || !selected) return;
   void perform(async () => {
     const result = await rpc<LookupResult>({ type: 'CONFIRM_MATCH', contextId: context!.id, previewId: selected!.previewId });
-    if (result.state.kind !== 'rated' && result.state.kind !== 'unrated') throw new Error('The match was not confirmed. Reload this page and review the title again.');
+    if (!('record' in result.state) || !result.state.record) throw new Error('The match was not confirmed. Reload this page and review the title again.');
     saved = true;
     notice('Match saved. Its rating badges will update on your streaming page. You can close this tab.');
     element<HTMLButtonElement>('confirm').textContent = 'Match saved';

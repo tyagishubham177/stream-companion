@@ -5,7 +5,7 @@
   "description": "IMDb ratings and personal title marks while browsing Netflix and JioHotstar.",
   "minimum_chrome_version": "120",
   "permissions": ["storage"],
-  "host_permissions": ["https://www.omdbapi.com/*", "https://query.wikidata.org/*", "https://www.netflix.com/*", "https://www.hotstar.com/*"],
+  "host_permissions": ["https://datasets.imdbws.com/*", "https://www.omdbapi.com/*", "https://query.wikidata.org/*", "https://www.netflix.com/*", "https://www.hotstar.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{ "matches": ["https://www.netflix.com/*", "https://www.hotstar.com/in", "https://www.hotstar.com/in?*", "https://www.hotstar.com/in/*"], "js": ["content.js"], "run_at": "document_idle", "all_frames": false }],
   "action": { "default_title": "Stream Companion", "default_popup": "popup.html", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },

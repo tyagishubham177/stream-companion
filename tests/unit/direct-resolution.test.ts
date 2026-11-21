@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, ratingKey, titleKey, type Mapping, type TitleObservation } from '../../src/shared/contracts';
-import { Resolver } from '../../src/background/resolver';
+import { Resolver, type RateTitle } from '../../src/background/resolver';
 import { Repository } from '../../src/background/repository';
 import type { Configuration } from '../../src/background/config';
 import type { Scheduler } from '../../src/background/scheduler';
@@ -17,14 +17,14 @@ const matched = (): DirectIdResult => ({ kind: 'matched', imdbId: raw.imdbID, en
 let repo: Repository;
 beforeEach(() => { repo = new Repository(`direct-resolution-${crypto.randomUUID()}`); });
 
-function setup(result: DirectIdResult = matched(), response: unknown = raw) {
+function setup(result: DirectIdResult = matched(), response: unknown = raw, rateTitle?: RateTitle) {
   const request = vi.fn(async (_params: Record<string, string>, _explicit: boolean, decode: (raw: unknown) => unknown) => decode(response));
   const resolve = vi.fn(async (): Promise<DirectIdResult> => result);
   const config = {
     settings: async () => ({ ...DEFAULT_SETTINGS }),
     credential: async () => ({ key: 'synthetic-key', id: 'synthetic-credential', version: 1 }),
   } as unknown as Configuration;
-  const resolver = new Resolver(repo, { request } as unknown as Scheduler, config, { resolve });
+  const resolver = new Resolver(repo, { request } as unknown as Scheduler, config, { resolve }, undefined, undefined, rateTitle);
   return { resolver, request, resolve, config };
 }
 function mapping(method: Mapping['method'] = 'automatic', revision = 1): Mapping {
@@ -235,11 +235,13 @@ describe('automatic source relationship revalidation', () => {
     expect(resolve).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
   });
 
-  it('keeps explicit Refresh as a budgeted rating refresh even when source provenance is old', async () => {
-    await seed(); const { resolver, resolve, request } = setup();
-    expect(await resolver.lookup(observation, true, 1)).toMatchObject({ revision: 1, state: { kind: 'rated', record: { subject: { id: raw.imdbID } } } });
-    expect(resolve).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls[0][0]).toEqual({ i: raw.imdbID, plot: 'short' });
-    expect(request.mock.calls[0][1]).toBe(true);
+  it('refreshes a score through the dataset without revalidating old Wikidata evidence', async () => {
+    await seed();
+    const { resolver, resolve, request } = setup(matched(), raw,
+      async record => ({ ...record, provider: 'imdb-dataset', score: 7.5, votes: 123, fetchedAt: Date.now() }));
+    expect(await resolver.lookup(observation, true, 1)).toMatchObject({ revision: 1, state: { kind: 'rated',
+      record: { subject: { id: raw.imdbID }, provider: 'imdb-dataset', score: 7.5 } } });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 # Stream Companion
 
-A personal Chrome extension for **IMDb ratings and title marks on Netflix and JioHotstar**. Ratings use your own OMDb key. Marks work without one.
+A personal Chrome extension for **IMDb ratings and title marks on Netflix and JioHotstar**. Scores for matched titles come from IMDb’s official ratings dataset. Your OMDb key supports matching new titles.
 
 **0.6.0 update:** **IMDb ratings** and **Mark as watched** are independent switches in the popup and Settings. Mark as watched enables Watched, Want to watch and Won’t watch; the other preferences are under Advanced settings. Both switches apply to both platforms. Your titles keeps Netflix and JioHotstar marks separate and links back to the source title.
 
@@ -44,7 +44,7 @@ Browser fixtures use disposable profiles, fake titles and fake keys. HTTP destin
 
 1. Build with `npm run build`.
 2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `D:\Coding Projects\chrome extensions\stream-companion\dist`.
-3. In Stream Companion Settings, obtain/activate an [OMDb key](https://www.omdbapi.com/apikey.aspx), then **Save & test**. Enter it only in Settings.
+3. To match new titles, obtain or activate an [OMDb key](https://www.omdbapi.com/apikey.aspx) and choose **Save & test** in Stream Companion Settings. Saved matches and title marks work without a key.
 4. Reload a Netflix or JioHotstar browse tab. Use the popup’s two switches, then use the IMDb badge for rating details or Mark for your watch decisions.
 
 No server runs in production. `npm run dev` rebuilds TypeScript while editing; changes to public HTML/CSS need a fresh build. Reload the extension in `chrome://extensions` and refresh streaming tabs after updates.
@@ -57,7 +57,7 @@ npm run package
 
 Output: `releases\stream-companion-0.6.4.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
-For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, allow JioHotstar access if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections, cache and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
+For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, confirm access to the IMDb dataset host if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 
 ## Verify in your account
 
@@ -74,9 +74,11 @@ The [catalogue audit](docs/Catalogue_Coverage_Audit.md) records 12 English/Hindi
 
 ## Caching
 
-Ratings persist in this browser profile. Current-year films, ongoing series and series with an unknown end year refresh **weekly**. Older films and series whose explicit end year is before the current year refresh **every 30 days**. Age is approximate because OMDb supplies release years rather than exact dates. Confirmed titles without a usable score follow the same weekly/monthly policy.
+The worker downloads one shared IMDb ratings snapshot on the first matched lookup. When a matched title next needs a rating after 24 hours, the worker checks for an updated snapshot. Most lookups read the existing local copy. A failed refresh retains the last downloaded scores and marks them as stale. **Refresh** on a badge checks the same snapshot. Cache-only mode uses the local copy.
 
-Fresh cached data makes no provider call, including repeated cards and cached correction previews. Refresh becomes eligible when that title is next visible; it does not run a background timer. Failed refreshes may show a marked stale score for seven additional days. Manual Refresh and a deliberate key test can bypass freshness while respecting quota and cooldowns. Saved matches persist separately from scores; cache-only mode pauses provider fetching except a requested key test.
+Verified title details remain cached for matching. Clear ratings cache removes the snapshot and cached details while preserving saved matches and title marks. The next matched lookup may download the snapshot again. OMDb request accounting still applies to matching and deliberate key tests. [Dataset behavior](docs/imdb-dataset-ratings.md)
+
+Information courtesy of [IMDb](https://www.imdb.com). Used with permission. The [IMDb dataset terms](https://help.imdb.com/article/imdb/general-information/can-i-use-imdb-data-in-my-software/G5JTRESSHJBBHTGX) allow personal, non-commercial use.
 
 ## Structure
 
@@ -84,7 +86,7 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 - `src/features/ratings`: badge presentation and retry policy.
 - `src/content`: card lifecycle, visibility and accessible overlay.
 - `src/background`: authorization, resolver, transactional storage and shared request scheduler.
-- `src/providers`: fixed-origin OMDb transport and response normalization.
+- `src/providers`: fixed-origin OMDb title matching and local IMDb ratings snapshots.
 - `src/providers/wikidata.ts`: batched public identity lookup, separate cache and cooldown.
 - `src/providers/netflix-metadata.ts`: cookie-free public movie metadata, bounded parsing, separate cache and cooldown.
 - `src/pages`: popup, settings and correction UI.
@@ -94,6 +96,6 @@ Fresh cached data makes no provider call, including repeated cards and cached co
 
 Mappings use platform + title identity. Rating caches distinguish external identity, source and provider. New platforms do not inherit another platform's corrections. Add an adapter and exact host permissions when implementing the next supported service; no runtime plugin framework is required.
 
-The worker owns keys and network access. Request accounting and provider cooldowns survive cache clearing. The extension uses no private streaming APIs, account credentials, telemetry or remote executable code. Wikidata receives public platform IDs; OMDb receives title evidence or an IMDb ID and the API key. JioHotstar metadata comes from the current page. The existing Netflix public metadata fallback uses cookie-free requests and a 30-day cache. Public distribution needs provider-rights and product-name checks.
+The worker owns keys and network access. OMDb request accounting and cooldowns survive cache clearing. The extension uses no private streaming APIs, account credentials, telemetry or remote executable code. Wikidata receives public platform IDs. OMDb receives title evidence or an IMDb ID and the API key for matching. The IMDb download sends no title IDs, referrer or API key. JioHotstar metadata comes from the current page. The Netflix public metadata fallback uses cookie-free requests and a 30-day cache. Public distribution needs provider-rights and product-name checks.
 
 After reloading or updating the extension in Chrome, refresh each streaming tab. A disconnected script stops and offers a refresh button on supported browsing pages. Chrome may retain older warning entries under Errors until you clear them.

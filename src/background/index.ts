@@ -1,13 +1,14 @@
-import { PROTOCOL_VERSION, RESOLVER_VERSION, titleKey, type AppStatus, type Broadcast, type CorrectionContext, type LookupResult, type Mapping, type PlatformTitleRef, type PublicStatus, type RatingRecord, type SavedMatch, type SearchResult } from '../shared/contracts';
+import { PROTOCOL_VERSION, RESOLVER_VERSION, titleKey, type AppStatus, type Broadcast, type CorrectionContext, type LookupResult, type Mapping, type MatchedTitleDetails, type PlatformTitleRef, type PublicStatus, type RatingRecord, type SavedMatch, type SearchResult } from '../shared/contracts';
 import { authoriseRequest, validateRequest } from '../shared/validation';
 import { contradicts, observationFingerprint, parseImdbInput } from '../shared/identity';
 import { parseSearch, ProviderError } from '../providers/omdb';
 import { Configuration } from './config';
 import { Repository, idbRequest, txGet, txPut } from './repository';
 import { DeferredError, Scheduler } from './scheduler';
-import { Resolver, candidateChecks, stateFromRecord } from './resolver';
+import { Resolver, candidateChecks, matchDetails, stateFromRecord, type RateTitle } from './resolver';
 import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
+import { ImdbRatings, ImdbRatingsUnavailable } from '../providers/imdb-ratings';
 import { MarksService, MarkError } from './marks';
 import { HotstarPosterMemory } from './hotstar-posters';
 import { clearRatingCache, HotstarPosterRatings } from './hotstar-poster-ratings';
@@ -18,22 +19,34 @@ const config = new Configuration();
 const marks = new MarksService(repo);
 const hotstarPosters = new HotstarPosterMemory();
 const scheduler = new Scheduler(repo, () => config.credential(), fetch, async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false }; });
-const hotstarPosterRatings = new HotstarPosterRatings(repo, scheduler, config);
+const imdbRatings = new ImdbRatings(repo);
+const emptyDatasetRating = (matchedTitle: RatingRecord) =>
+  ({ ...matchedTitle, provider: 'imdb-dataset' as const, score: null, votes: null, fetchedAt: 0 });
+const rateTitle: RateTitle = async (matchedTitle, cacheOnly) => {
+  const record = emptyDatasetRating(matchedTitle);
+  try { return { ...record, ...await imdbRatings.lookup(record.subject.id, cacheOnly) }; }
+  catch (error) {
+    if (!(error instanceof ImdbRatingsUnavailable)) throw error;
+    return { ...record, ratingIssue: { message: error.message, retryAfter: error.retryAfter } };
+  }
+};
+const hotstarPosterRatings = new HotstarPosterRatings(repo, scheduler, config, rateTitle);
 const matchingEligibility = async () => { const s = await config.settings(); return { ...s, enabled: s.enabled && s.ratingsEnabled !== false && s.automaticMatching !== false }; };
 const directIds = new WikidataResolver(repo, matchingEligibility);
 const metadata = new NetflixMetadataResolver(repo, matchingEligibility);
 const matchingLog = new MatchingLog(repo, chrome.runtime.getManifest().version);
-const resolver = new Resolver(repo, scheduler, config, directIds, metadata, matchingLog);
+const resolver = new Resolver(repo, scheduler, config, directIds, metadata, matchingLog, rateTitle);
 const ready = Promise.all([config.ready(), repo.open()]).then(async () => { matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; });
 // Prevent a rejected startup promise becoming an unhandled rejection before the first message.
 void ready.catch(() => undefined);
+type PreviewRecord = RatingRecord & MatchedTitleDetails;
 interface StoredContext extends CorrectionContext {
   expiresAt: number;
   resetEpoch: number;
   logEpoch?: number;
   automatic?: AutomaticDecision;
   searches?: Array<SearchEvidence & { id: string }>;
-  preview?: { id: string; record: RatingRecord; expiresAt: number; selection?: SearchSelection };
+  preview?: { id: string; record: PreviewRecord; expiresAt: number; selection?: SearchSelection };
 }
 interface Client { tabId: number; documentId: string; platformId?: string }
 const rates = new Map<string, { since: number; count: number; active: number }>();
@@ -95,8 +108,8 @@ async function broadcast(message: Broadcast): Promise<void> {
 async function publicStatus(): Promise<PublicStatus> {
   const credential = await config.credential(); const settings = await config.settings();
   const { count, circuit } = await scheduler.status();
-  let provider: PublicStatus['provider'] = credential ? { kind: 'ready', message: 'OMDb key configured. Requests are checked when sent.' } : { kind: 'setup', message: 'Add your OMDb key to fetch ratings.' };
-  if (circuit?.kind) provider = { kind: 'paused', message: circuit.kind === 'key' ? 'OMDb rejected the key. Check or retest it in Settings.' : circuit.kind === 'quota' ? 'OMDb request limit reached. Cached ratings remain available.' : 'The rating service is cooling down.', retryAfter: circuit.kind === 'key' ? undefined : circuit.until };
+  let provider: PublicStatus['provider'] = credential ? { kind: 'ready', message: 'OMDb key configured for title matching.' } : { kind: 'setup', message: 'Add an OMDb key to match new titles. Saved matches use IMDb ratings directly.' };
+  if (circuit?.kind) provider = { kind: 'paused', message: circuit.kind === 'key' ? 'OMDb rejected the key. Check or retest it in Settings.' : circuit.kind === 'quota' ? 'OMDb request limit reached. IMDb ratings for saved matches remain available.' : 'OMDb title matching is cooling down.', retryAfter: circuit.kind === 'key' ? undefined : circuit.until };
   if (count >= 900) provider = { kind: 'paused', message: 'The local request allowance is used up.' };
   else if (count >= 800 && !circuit?.kind) provider = { kind: 'paused', message: 'Automatic lookups paused; the remaining allowance is reserved for your actions.' };
   if (maintenanceFailed) provider = { kind: 'paused', message: 'Local cache maintenance failed. Reload the extension or check available browser storage.' };
@@ -119,7 +132,7 @@ async function logFailure(ctx: StoredContext, stage: string, error: unknown): Pr
   try { await matchingLog.append(correctionEvent(ctx, 'failure', { reason: `${stage}:${reason}` })); }
   catch { matchingLog.failed = true; }
 }
-async function saveMatch(ctx: StoredContext, record: RatingRecord): Promise<LookupResult> {
+async function saveMatch(ctx: StoredContext, record: PreviewRecord): Promise<LookupResult> {
   const revision = await repo.transaction(['mappings', 'contexts', 'state', 'matchingLogs'], async tx => {
     const current = await txGet<Mapping>(tx, 'mappings', titleKey(ctx.observation.ref));
     const live = await txGet<StoredContext>(tx, 'contexts', ctx.id);
@@ -131,7 +144,7 @@ async function saveMatch(ctx: StoredContext, record: RatingRecord): Promise<Look
     if (current?.subject && current.subject.id !== record.subject.id) rejected.add(current.subject.id);
     rejected.delete(record.subject.id);
     txPut(tx, 'mappings', titleKey(ctx.observation.ref), { ref: ctx.observation.ref, subject: record.subject, evidence: ctx.observation,
-      revision, method: 'manual', rejected: [...rejected], resolverVersion: RESOLVER_VERSION } satisfies Mapping);
+      revision, method: 'manual', rejected: [...rejected], details: matchDetails(record), resolverVersion: RESOLVER_VERSION } satisfies Mapping);
     const steps = [...(ctx.automatic?.steps ?? [])].reverse();
     const evidence = steps.find(step => step.stage === 'enriched_evidence')?.evidence ?? ctx.observation;
     const automaticSearch = steps.find(step => step.search?.candidates.some(candidate => candidate.id === record.subject.id))?.search;
@@ -148,7 +161,10 @@ async function saveMatch(ctx: StoredContext, record: RatingRecord): Promise<Look
   }, true);
   matchingLog.failed = false;
   await broadcast({ type: 'SC_INVALIDATE', ref: ctx.observation.ref, revision });
-  return { state: stateFromRecord(record, 'manual'), fingerprint: observationFingerprint(ctx.observation), revision };
+  const rating = record.provider === 'imdb-dataset' ? record : {
+    ...emptyDatasetRating(record), ratingIssue: { message: 'Open the saved title to load its IMDb rating.' },
+  };
+  return { state: stateFromRecord(rating, 'manual'), fingerprint: observationFingerprint(ctx.observation), revision };
 }
 async function removeMatch(ref: PlatformTitleRef, expectedRevision: number): Promise<void> {
   const revision = await repo.transaction(['mappings', 'matchingLogs', 'state'], async tx => {
@@ -282,12 +298,15 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
             selection = { searchId: search.id, query: search.query, page: search.page, position: position + 1,
               rank: (search.page - 1) * 10 + position + 1, total: search.total };
           }
-          const record = await resolver.detail(id, true);
-          if (contradicts(ctx.observation, record)) {
-            await matchingLog.append(correctionEvent(ctx, 'failure', { reason: 'preview:year_or_type_contradiction', candidate: candidateRecord(record), selection }));
+          const matchedTitle = await resolver.detail(id, true);
+          if (contradicts(ctx.observation, matchedTitle)) {
+            await matchingLog.append(correctionEvent(ctx, 'failure', { reason: 'preview:year_or_type_contradiction', candidate: candidateRecord(matchedTitle), selection }));
             throw new Error('This title conflicts with the observed year or movie/series type. Select the matching work.');
           }
           const previewId = crypto.randomUUID();
+          const settings = await config.settings();
+          const record: PreviewRecord = { ...await rateTitle(matchedTitle, settings.cacheOnly || !settings.enabled || !settings.ratingsEnabled),
+            ...matchDetails(matchedTitle) };
           await repo.transaction(['contexts', 'matchingLogs', 'state'], async tx => {
             const live = await txGet<StoredContext>(tx, 'contexts', ctx.id);
             if (!live || live.expiresAt < Date.now()) throw new Error('This correction session expired. Open Match title again from the streaming page.');
@@ -327,7 +346,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         }, true);
         await broadcast({ type: 'SC_INVALIDATE' }); return null;
       }
-      case 'CLEAR_RATING_CACHE': await clearRatingCache(repo); await broadcast({ type: 'SC_INVALIDATE' }); return null;
+      case 'CLEAR_RATING_CACHE': await imdbRatings.clear(); await clearRatingCache(repo); await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'CLEAR_MATCHING_LOG': {
         await matchingLog.clear(); return null;
       }

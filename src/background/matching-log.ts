@@ -82,9 +82,10 @@ export class MatchingLog {
     if (state.kind === 'disabled' || state.kind === 'setup_required') return;
     const outcome: AutomaticDecision['outcome'] = { kind: state.kind,
       ...('reason' in state ? { reason: state.reason } : {}),
-      ...('record' in state ? { imdbId: state.record.subject.id } : {}) };
+      ...('record' in state && state.record ? { imdbId: state.record.subject.id } : {}) };
     const previous = await this.latest(observation, revision, epoch);
     // A cached stop must retain the original search evidence and must not flood the log on scroll.
+    if (outcome.imdbId && previous?.outcome.imdbId === outcome.imdbId && steps.some(step => step.stage === 'saved_mapping')) return;
     if (previous && JSON.stringify(previous.outcome) === JSON.stringify(outcome) &&
       (steps.some(step => ['resolution_cache', 'rating_cache'].includes(step.stage)) || JSON.stringify(previous.steps) === JSON.stringify(steps))) return;
     const automatic: AutomaticDecision = { id: crypto.randomUUID(), at: Date.now(), observation, revision, epoch,

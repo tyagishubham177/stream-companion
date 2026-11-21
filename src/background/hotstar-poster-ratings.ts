@@ -6,6 +6,7 @@ import { normaliseTitle } from '../shared/identity';
 import type { Configuration } from './config';
 import { idbRequest, txGet, txPut, type Repository } from './repository';
 import { DeferredError, type Scheduler } from './scheduler';
+import type { RateTitle } from './resolver';
 
 type Poster = HotstarPosterRatingRequest;
 type Result = HotstarPosterRatingResult;
@@ -55,7 +56,7 @@ export class HotstarPosterRatings {
   private readonly pending = new Map<string, Pending>();
 
   constructor(private readonly repo: Repository, private readonly scheduler: Pick<Scheduler, 'request'>,
-    private readonly config: Pick<Configuration, 'settings'>) {}
+    private readonly config: Pick<Configuration, 'settings'>, private readonly rateTitle?: RateTitle) {}
 
   lookup(poster: Poster, demand: () => boolean): Promise<Result> {
     if (!eligibleHotstarPosterTitle(poster.title)) return Promise.resolve({ record: null, expiresAt: Date.now() + MISS_TTL, outcome: 'not_found' });
@@ -96,7 +97,7 @@ export class HotstarPosterRatings {
       const record = await this.readRating(cached.candidate.id);
       if (record && sameWork(poster, cached.candidate, record) && ratingCacheState(record, now) === 'fresh') {
         if ((await this.repo.get<number>('state', CACHE_EPOCH_KEY) ?? 0) !== epoch) return retry();
-        return this.result(record, cached.expiresAt, 'cache', now);
+        return this.result(record, cached.expiresAt, 'cache', demand);
       }
     }
     if (settings.cacheOnly) return retry(undefined, 'paused');
@@ -118,11 +119,20 @@ export class HotstarPosterRatings {
       if (!useCachedRating) txPut(tx, 'ratings', ratingKey(record.subject), record);
       return true;
     });
-    return saved ? this.result(record, expiresAt, useCachedRating ? 'cache' : 'fresh') : retry();
+    return saved ? this.result(record, expiresAt, useCachedRating ? 'cache' : 'fresh', demand) : retry();
   }
 
-  private result(record: RatingRecord, associationExpiresAt: number, origin: 'fresh' | 'cache', now = Date.now()): Result {
-    const expiresAt = Math.min(associationExpiresAt, record.fetchedAt + ratingFreshFor(record, now));
+  private async result(matchedTitle: RatingRecord, associationExpiresAt: number, origin: 'fresh' | 'cache', demand: () => boolean): Promise<Result> {
+    let record = matchedTitle;
+    if (this.rateTitle) {
+      const settings = await this.config.settings();
+      if (!settings.enabled || !settings.ratingsEnabled || !settings.automaticMatching) return retry(undefined, 'paused');
+      record = await this.rateTitle(matchedTitle, settings.cacheOnly || !demand());
+    }
+    if (record.ratingIssue) return retry(record.ratingIssue.retryAfter);
+    const now = Date.now();
+    const dueAt = record.fetchedAt + ratingFreshFor(record, now);
+    const expiresAt = Math.min(associationExpiresAt, dueAt > now || !this.rateTitle ? dueAt : now + 60_000);
     return record.score === null ? { record: null, expiresAt, outcome: 'unrated' } : { record, expiresAt, origin };
   }
 

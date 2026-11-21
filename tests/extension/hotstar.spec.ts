@@ -1,6 +1,7 @@
 import { chromium, expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { ratingsFixture, serveRatingsFixture } from './ratings-fixture';
 
 const hotstar = 'https://www.hotstar.com';
 const netflix = 'https://www.netflix.com';
@@ -98,6 +99,7 @@ const ratings: Record<string, { title: string; type: string; score: string; year
   [coldShowId]: { title: coldShowTitle, type: 'series', score: '8.2', year: '2021' },
   tt9100201: { title: 'Fixture Netflix Film', type: 'movie', score: '7.4' },
 };
+const imdbScores = ratingsFixture(Object.entries(ratings).map(([id, entry]) => [id, entry.score]));
 let context: BrowserContext;
 let profile: string;
 let profileRoot: string;
@@ -122,6 +124,7 @@ test.beforeAll(async ({}, info) => {
   });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (url.hostname === 'datasets.imdbws.com') return serveRatingsFixture(route, imdbScores);
     if (url.hostname === 'query.wikidata.org') {
       const query = url.searchParams.get('query') ?? '';
       const isHotstar = query.includes('P11049');
@@ -159,7 +162,7 @@ test.beforeAll(async ({}, info) => {
       detailCalls.push(id);
       const entry = ratings[id];
       return route.fulfill({ json: { Response: 'True', Title: entry.title, Year: entry.year ?? '2020', Type: entry.type,
-        imdbID: id, imdbRating: entry.score, imdbVotes: '1,234' } });
+        imdbID: id, imdbRating: id === uniquePosterId ? '6.9' : entry.score, imdbVotes: '1,234' } });
     }
     if (url.href === verifiedAsset || ['fixture-paired-a', 'fixture-paired-b', uniquePosterAsset, ambiguousPosterAsset, coldShowAsset]
       .some(asset => url.href === pairedImage(asset))) {

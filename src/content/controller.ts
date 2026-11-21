@@ -292,7 +292,7 @@ export class ContentController {
   private initialState(tile: HTMLElement): BadgeState | null {
     const score = this.adapter?.visibleImdb?.(tile);
     if (score !== undefined) return { kind: 'hotstar_score', score };
-    return this.status?.keyConfigured === false ? { kind: 'setup_required' } : null;
+    return null;
   }
 
   private release(ref?: PlatformTitleRef): void {
@@ -382,8 +382,7 @@ export class ContentController {
       if (!this.accepts(state, generation, fingerprint, epoch) || result.fingerprint !== fingerprint || result.revision < state.revision) return;
       state.revision = result.revision;
       state.checkedAt = Date.now();
-      state.state = this.status?.keyConfigured === false && !['rated', 'unrated'].includes(result.state.kind)
-        ? { kind: 'setup_required' } : result.state;
+      state.state = result.state;
       this.overlay?.updateBadge(state.button, state.observation, state.state);
       if (!refresh) this.scheduleRetry(state);
       this.reposition();
