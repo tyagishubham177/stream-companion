@@ -2,10 +2,11 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
-## Unreleased
+## 0.7.0 — IMDb dataset and paced ratings
 
 - Show ratings and vote counts for matched titles from IMDb’s official daily dataset. OMDb supplies title matching and verification.
 - Keep saved matches usable without an OMDb key. Refresh the shared snapshot on demand and retain the last good scores if a download fails.
+- Queue automatic rating lookups on dense catalogue pages. Skip cards that leave view, and wait for a busy extension worker to accept new work.
 
 ## 0.6.4 — Hotstar Home and studio pages
 

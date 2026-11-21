@@ -1,4 +1,4 @@
-import { ExtensionContextInvalidatedError, extensionContextAlive, rpc } from '../shared/client';
+import { ExtensionBusyError, ExtensionContextInvalidatedError, extensionContextAlive, rpc } from '../shared/client';
 import { observationFingerprint } from '../shared/identity';
 import { titleKey, type Broadcast, type LookupResult, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
 import type { BadgeState } from '../features/ratings/presentation';
@@ -9,6 +9,7 @@ import { automaticRetryDelay, canResumeOnDemand } from '../features/ratings/reco
 import { DAY_MS, ratingCacheState } from '../shared/freshness';
 import { showReconnectNotice } from './reconnect';
 import { PosterRatings } from './poster-ratings';
+import { RatingRequests } from './rating-requests';
 
 interface TileState {
   tile: HTMLElement;
@@ -31,6 +32,7 @@ export class ContentController {
   private adapter: StreamingPlatformAdapter | undefined;
   private overlay: Overlay | null = null;
   private posterRatings?: PosterRatings;
+  private readonly ratingRequests = new RatingRequests();
   private tiles = new Map<HTMLElement, TileState>();
   private enrichment = new Map<string, TitleObservation>();
   private knownObservations = new Map<string, TitleObservation>();
@@ -173,7 +175,7 @@ export class ContentController {
       this.reposition();
     }, { threshold: [0, 0.1] });
     if (this.adapter?.observePoster)
-      this.posterRatings = new PosterRatings(this.adapter, this.overlay, this.intersection, this.reposition, () => this.disconnect());
+      this.posterRatings = new PosterRatings(this.adapter, this.overlay, this.intersection, this.ratingRequests, this.reposition, () => this.disconnect());
     if (this.posterRatings) document.addEventListener('load', this.artworkLoaded, true);
     this.mutation = new MutationObserver(records => {
       let changed = false;
@@ -375,10 +377,22 @@ export class ContentController {
     const fingerprint = state.fingerprint;
     const revision = state.revision;
     const epoch = this.epoch;
+    const observation = state.observation;
     state.requested = true;
-    this.demandRefs.add(titleKey(state.observation.ref));
     try {
-      const result = await rpc<LookupResult>(refresh ? { type: 'REFRESH', observation: state.observation, revision } : { type: 'LOOKUP', observation: state.observation });
+      const result = refresh ? await rpc<LookupResult>({ type: 'REFRESH', observation, revision }) :
+        await this.ratingRequests.run(
+          () => state.visible && !state.button.hidden && !document.hidden && !!this.status?.settings.enabled &&
+            this.accepts(state, generation, fingerprint, epoch) && !this.adapter?.isObscured(state.tile),
+          () => {
+            this.demandRefs.add(titleKey(observation.ref));
+            return rpc<LookupResult>({ type: 'LOOKUP', observation });
+          },
+        );
+      if (!result) {
+        if (this.accepts(state, generation, fingerprint, epoch)) state.requested = false;
+        return;
+      }
       if (!this.accepts(state, generation, fingerprint, epoch) || result.fingerprint !== fingerprint || result.revision < state.revision) return;
       state.revision = result.revision;
       state.checkedAt = Date.now();
@@ -389,6 +403,7 @@ export class ContentController {
     } catch (error) {
       if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       if (!this.accepts(state, generation, fingerprint, epoch)) return;
+      if (refresh && error instanceof ExtensionBusyError) throw error;
       state.state = { kind: 'deferred', reason: 'provider', message: error instanceof Error ? error.message : 'Unable to connect to the rating service.' };
       this.overlay?.updateBadge(state.button, state.observation, state.state);
       if (!refresh) this.scheduleRetry(state);
@@ -439,6 +454,7 @@ export class ContentController {
   }
 
   private detach(): void {
+    this.ratingRequests.cancelPending();
     if (this.demandLifetimeActive) {
       this.demandLifetimeActive = false; this.demandRefs.clear(); this.release();
     }

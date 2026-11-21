@@ -4,6 +4,10 @@ export class ExtensionContextInvalidatedError extends Error {
   constructor() { super('Stream Companion was reloaded or disconnected. Refresh this page to reconnect.'); }
 }
 
+export class ExtensionBusyError extends Error {
+  constructor(readonly retryAfter: number, message = 'Too many extension requests. Try again shortly.') { super(message); }
+}
+
 export function extensionContextAlive(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime?.id;
 }
@@ -18,6 +22,9 @@ export async function rpc<T>(request: Request): Promise<T> {
     throw new Error('Extension connection lost. Reload this page and try again.');
   }
   if (!reply) throw new Error('The extension did not respond. Reload this page.');
-  if (!reply.ok) throw new Error(reply.error);
+  if (!reply.ok) {
+    if (reply.retryAfter !== undefined && Number.isFinite(reply.retryAfter)) throw new ExtensionBusyError(reply.retryAfter, reply.error);
+    throw new Error(reply.error);
+  }
   return reply.value;
 }

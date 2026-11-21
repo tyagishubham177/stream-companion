@@ -3,6 +3,7 @@ import { ExtensionContextInvalidatedError, rpc } from '../shared/client';
 import type { HotstarPosterLookupCounts, HotstarPosterRatingRequest, HotstarPosterRatingResult, Settings } from '../shared/contracts';
 import { eligibleHotstarPosterTitle } from '../shared/hotstar-poster-binding';
 import type { BadgeMount, Overlay } from './overlay';
+import type { RatingRequests } from './rating-requests';
 
 interface PosterTile {
   tile: HTMLElement;
@@ -22,7 +23,7 @@ export class PosterRatings {
   private disposed = false;
 
   constructor(private readonly adapter: StreamingPlatformAdapter, private readonly overlay: Overlay,
-    private readonly observer: IntersectionObserver, private readonly onChange: () => void,
+    private readonly observer: IntersectionObserver, private readonly ratingRequests: RatingRequests, private readonly onChange: () => void,
     private readonly onDisconnect: () => void) {}
 
   get size(): number { return this.tiles.size; }
@@ -175,7 +176,12 @@ export class PosterRatings {
       this.results.set(poster.key, result);
       while (this.results.size > 200) this.results.delete(this.results.keys().next().value!);
     };
-    void rpc<HotstarPosterRatingResult>({ type: 'LOOKUP_HOTSTAR_POSTER_RATING', poster }).then(save).catch(error => {
+    const needed = () => active() && !document.hidden && [...this.tiles.values()].some(state =>
+      state.poster.key === poster.key && state.visibleSince !== undefined && state.tile.isConnected &&
+      !this.adapter.isObscured(state.tile) && !state.tile.closest('[aria-hidden="true"],[hidden],[inert]'));
+    void this.ratingRequests.run(needed, () => rpc<HotstarPosterRatingResult>({ type: 'LOOKUP_HOTSTAR_POSTER_RATING', poster })).then(result => {
+      if (result) save(result);
+    }).catch(error => {
       if (error instanceof ExtensionContextInvalidatedError) { if (active()) this.onDisconnect(); }
       else save({ record: null, expiresAt: Date.now() + 30000, retryable: true, outcome: 'retry' });
     }).finally(() => {

@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION, RESOLVER_VERSION, titleKey, type AppStatus, type Broadcast, type CorrectionContext, type LookupResult, type Mapping, type MatchedTitleDetails, type PlatformTitleRef, type PublicStatus, type RatingRecord, type SavedMatch, type SearchResult } from '../shared/contracts';
 import { authoriseRequest, validateRequest } from '../shared/validation';
+import { ExtensionBusyError } from '../shared/client';
 import { contradicts, observationFingerprint, parseImdbInput } from '../shared/identity';
 import { parseSearch, ProviderError } from '../providers/omdb';
 import { Configuration } from './config';
@@ -185,12 +186,21 @@ async function removeMatch(ref: PlatformTitleRef, expectedRevision: number): Pro
 async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promise<unknown> {
   const request = validateRequest(raw);
   const authority = authoriseRequest(sender, chrome.runtime.id, request);
+  // Cancellation must still reach a busy worker so it can stop offscreen work.
+  if (request.type === 'RELEASE_DEMAND') {
+    const key = request.posterKey ? posterDemandKey(request.posterKey) : request.ref ? titleKey(request.ref) : undefined;
+    releaseDemand(sender.documentId!, key);
+    return null;
+  }
   const { role } = authority;
   const rateKey = sender.documentId ?? `${role}:${sender.url?.split('?')[0]}`;
   const now = Date.now();
   let rate = rates.get(rateKey);
-  if (!rate || now - rate.since > 60000) { rate = { since: now, count: 0, active: 0 }; rates.set(rateKey, rate); }
-  if (++rate.count > 240 || rate.active >= 40) throw new Error('Too many extension requests. Try again shortly.');
+  if (!rate) { rate = { since: now, count: 0, active: 0 }; rates.set(rateKey, rate); }
+  if (now - rate.since >= 60000) { rate.since = now; rate.count = 0; }
+  if (rate.count >= 240 || rate.active >= 40)
+    throw new ExtensionBusyError(rate.count >= 240 ? rate.since + 60000 : now + 1000);
+  rate.count++;
   if (role === 'content' && ['OPEN_SETTINGS', 'OPEN_CORRECTION'].includes(request.type)) {
     let navigation = navigationRates.get(rateKey);
     if (!navigation || now - navigation.at > 60000) { navigation = { at: now, count: 0 }; navigationRates.set(rateKey, navigation); }
@@ -235,10 +245,6 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
       case 'OPEN_TITLES': await chrome.tabs.create({ url: chrome.runtime.getURL('titles.html') }); return null;
       case 'OPEN_SETTINGS': await chrome.runtime.openOptionsPage(); return null;
       case 'LOOKUP': return await resolver.lookup(request.observation, false, undefined, liveDemand(sender, titleKey(request.observation.ref)));
-      case 'RELEASE_DEMAND': {
-        const key = request.posterKey ? posterDemandKey(request.posterKey) : request.ref ? titleKey(request.ref) : undefined;
-        releaseDemand(sender.documentId!, key); return null;
-      }
       case 'REFRESH': return await resolver.lookup(request.observation, true, request.revision);
       case 'UPDATE_SETTINGS': await config.update(request.settings); matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'SET_API_KEY': await config.setKey(request.key.trim()); await broadcast({ type: 'SC_INVALIDATE' }); return null;
@@ -369,7 +375,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
     }
   } finally {
     rate.active--;
-    if (rates.size > 200) for (const [key, value] of rates) if (Date.now() - value.since > 60000) rates.delete(key);
+    if (rates.size > 200) for (const [key, value] of rates) if (!value.active && Date.now() - value.since > 60000) rates.delete(key);
   }
 }
 
@@ -377,6 +383,10 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
 chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
   if (!(raw && typeof raw === 'object' && 'protocol' in raw)) return false;
   void route(raw, sender).then(value => respond({ ok: true, value })).catch(error => {
+    if (error instanceof ExtensionBusyError) {
+      respond({ ok: false, error: error.message, retryAfter: error.retryAfter });
+      return;
+    }
     const message = error instanceof ProviderError || error instanceof DeferredError || error instanceof MarkError ? error.message :
       error instanceof Error && /^(Invalid |Unsupported |Message sender|This page|Enter |The (saved )?match|The match changed|This correction|Preview |Use a valid|This title|Too many|Wait a minute|Close other)/.test(error.message) ? error.message :
         'The extension could not complete this action. Check local storage and try again.';

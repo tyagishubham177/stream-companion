@@ -55,7 +55,7 @@ To make a local ZIP:
 npm run package
 ```
 
-Output: `releases\stream-companion-0.6.4.zip`. Extract it to a permanent folder before using Load unpacked. Do not load the ZIP directly. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+The package is written to `releases\stream-companion-0.7.0.zip`. Extract it to a permanent folder before using Load unpacked. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, confirm access to the IMDb dataset host if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 
@@ -75,6 +75,8 @@ The [catalogue audit](docs/Catalogue_Coverage_Audit.md) records 12 English/Hindi
 ## Caching
 
 The worker downloads one shared IMDb ratings snapshot on the first matched lookup. When a matched title next needs a rating after 24 hours, the worker checks for an updated snapshot. Most lookups read the existing local copy. A failed refresh retains the last downloaded scores and marks them as stale. **Refresh** on a badge checks the same snapshot. Cache-only mode uses the local copy.
+
+On dense catalogue pages, automatic ratings wait in a queue. Cards still in view are checked in order, and new checks are paced so a single scroll or page load does not overwhelm the extension worker.
 
 Verified title details remain cached for matching. Clear ratings cache removes the snapshot and cached details while preserving saved matches and title marks. The next matched lookup may download the snapshot again. OMDb request accounting still applies to matching and deliberate key tests. [Dataset behavior](docs/imdb-dataset-ratings.md)
 

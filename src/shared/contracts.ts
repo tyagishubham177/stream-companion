@@ -123,7 +123,7 @@ export type Request =
   | { type: 'SAVE_HOTSTAR_POSTERS'; entries: HotstarPosterEntry[] }
   | { type: 'LOOKUP_HOTSTAR_POSTER_RATING'; poster: HotstarPosterRatingRequest }
   | { type: 'OPEN_TITLES' };
-export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
+export type Reply<T> = { ok: true; value: T } | { ok: false; error: string; retryAfter?: number };
 export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef };
 export const DEFAULT_SETTINGS: Settings = { enabled: true, corner: 'top-right', cacheOnly: false, ratingsEnabled: true, marksEnabled: true, shadeWatched: true, fadePassed: true, automaticMatching: true, matchingLogEnabled: true };
 export const titleKey = (ref: PlatformTitleRef): string => JSON.stringify([ref.platformId, ref.titleId]);
