@@ -3,6 +3,7 @@ import { observationFingerprint } from '../shared/identity';
 import { titleKey, type Broadcast, type LookupResult, type PageStats, type PlatformTitleRef, type PublicStatus, type TitleObservation } from '../shared/contracts';
 import type { BadgeState } from '../features/ratings/presentation';
 import { adapterFor } from '../platforms/registry';
+import { platformIdForOrigin } from '../platforms/links';
 import type { StreamingPlatformAdapter } from '../platforms/contracts';
 import { Overlay, type BadgeMount } from './overlay';
 import { automaticRetryDelay, canResumeOnDemand } from '../features/ratings/recovery';
@@ -203,7 +204,7 @@ export class ContentController {
     });
     this.mutation.observe(document.documentElement, {
       subtree: true, childList: true, attributes: true, characterData: true,
-      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'class', 'style', 'data-uia', 'data-testid', 'alt',
+      attributeFilter: ['href', 'aria-label', 'aria-hidden', 'hidden', 'inert', 'class', 'style', 'data-uia', 'data-testid', 'alt',
         ...(this.adapter?.id === 'hotstar' ? ['src', 'srcset'] : [])],
     });
     this.scan();
@@ -471,7 +472,7 @@ export class ContentController {
   private stats(): PageStats {
     const all = [...this.tiles.values()];
     return {
-      platformId: this.adapter?.id ?? (location.hostname === 'www.hotstar.com' ? 'hotstar' : 'netflix'), supported: !!this.adapter,
+      platformId: this.adapter?.id ?? platformIdForOrigin(location.origin) ?? 'netflix', supported: !!this.adapter,
       tiles: all.length + (this.posterRatings?.size ?? 0),
       rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length + (this.posterRatings?.rated ?? 0),
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,

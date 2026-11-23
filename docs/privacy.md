@@ -2,7 +2,7 @@
 
 Stream Companion sends lookup title names, corresponding release years, media types or IMDb IDs to `https://www.omdbapi.com/`. The OMDb key accompanies provider requests. OMDb also receives normal connection metadata such as IP address.
 
-For automatic identity matching, the public Netflix and JioHotstar IDs of visible titles are sent in separate, small batches to `https://query.wikidata.org/sparql`. Wikidata returns community-maintained streaming-to-IMDb identifier links and receives normal connection metadata. It never receives the OMDb key, streaming credentials, cookies, account/profile identifiers or playback history. Saved mappings and fresh caches avoid repeating these queries on every visit.
+For automatic identity matching, the public Netflix, JioHotstar, and Apple TV IDs of visible titles are sent in separate, small batches to `https://query.wikidata.org/sparql`. Wikidata returns community-maintained streaming-to-IMDb identifier links and receives normal connection metadata. It never receives the OMDb key, streaming credentials, cookies, account/profile identifiers or playback history. Saved mappings and fresh caches avoid repeating these queries on every visit.
 
 When a direct ID relationship is missing for a film, the worker requests its public Netflix title page from `https://www.netflix.com/in/title/:id`. This fixed public India/English catalogue route does not read or change the Netflix account’s region. Requests omit cookies, authentication and referrers, and never include the OMDb key. Netflix receives the public title ID and normal connection metadata. Only the film name, movie type, visibly displayed release year and public director/cast credits are extracted; scripts and private application state are not executed or read. Accepted metadata is cached locally for 30 days, genuine unsupported/missing pages for one day. It is not collected for off-screen browsing history.
 
@@ -37,6 +37,10 @@ Explicit watched/plan choices, display-title snapshots, modification times, revi
 Module toggles pause their feature and preserve saved data. Disabling matching-log recording also stops new diagnostic traces in resolution caches; existing records remain until cleared. Automatic matching can be paused while saved identities and cached ratings remain usable. Ratings and artwork treatments can be switched off independently.
 
 Series matching reads only bound public TVSeries metadata and cast, never treats the visible season year as a series start year. Optional title-query lookups send the same public film name/year/type to OMDb as existing searches; a different returned name requires corroborating director/cast and year/type proof. No new provider origin or ordinary browser permission is introduced. Classic New & Popular cards use only scoped public video_id/unifiedEntityId fields to corroborate a title; raw tracking context and its other fields are not stored or transmitted.
+
+## Apple TV support (0.8.0)
+
+Apple TV observations use public movie and series IDs from `tv.apple.com`. Episode cards can identify their parent series, and only the parent ID is used for ratings and marks. The extension saves title paths without playback progress or tracking parameters. A missing direct match can trigger a bounded request for the public Apple TV title page. These requests omit cookies and referrers. Public title, release year and type support matching, and public film credits can distinguish otherwise ambiguous results.
 
 ## JioHotstar support (0.6.0)
 

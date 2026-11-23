@@ -1,5 +1,7 @@
 import { netflixBrowseSurface } from '../platforms/netflix';
-import { HOTSTAR_ORIGIN, hotstarBrowseSurface, hotstarObservationPath, hotstarTitlePath } from '../platforms/hotstar/routes';
+import { hotstarBrowseSurface, hotstarObservationPath, hotstarTitlePath } from '../platforms/hotstar/routes';
+import { APPLE_TV_ID, appleBrowseSurface, appleObservationPath, appleTitlePath } from '../platforms/apple-tv/routes';
+import { platformIdForOrigin } from '../platforms/links';
 import { HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type HotstarPosterRatingRequest, type Request, type TitleObservation } from './contracts';
 import { validateFilmCredits } from './edition';
 import { normaliseTitle } from './identity';
@@ -9,20 +11,20 @@ const only = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).ever
 const string = (v: unknown, min: number, max: number): v is string => typeof v === 'string' && v.trim().length >= min && v.length <= max && !/[\u0000-\u001f]/.test(v);
 const revision = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
 const releaseYear = (value: unknown) => Number.isInteger(value) && Number(value) >= 1888 && Number(value) <= new Date().getUTCFullYear() + 5;
-type ContentPlatform = 'netflix' | 'hotstar';
+type ContentPlatform = NonNullable<ReturnType<typeof platformIdForOrigin>>;
 export function validRef(v: unknown): v is { platformId: ContentPlatform; titleId: string } {
-  return isObject(v) && only(v, ['platformId', 'titleId']) &&
-    (v.platformId === 'netflix' || v.platformId === 'hotstar') && typeof v.titleId === 'string' && /^\d{1,12}$/.test(v.titleId);
+  return isObject(v) && only(v, ['platformId', 'titleId']) && typeof v.titleId === 'string' &&
+    (v.platformId === 'apple-tv' ? APPLE_TV_ID.test(v.titleId) :
+      (v.platformId === 'netflix' || v.platformId === 'hotstar') && /^\d{1,12}$/.test(v.titleId));
 }
 export function validObservation(v: unknown): v is TitleObservation {
   if (!isObject(v) || !only(v, ['ref', 'displayTitle', 'mediaType', 'year', 'seasonCount', 'aliases', 'adapterVersion', 'pagePath', 'credits']) || !validRef(v.ref) ||
     !string(v.displayTitle, 1, 300) || typeof v.mediaType !== 'string' || !['movie', 'series', 'unknown'].includes(v.mediaType) ||
     !Number.isSafeInteger(v.adapterVersion) || Number(v.adapterVersion) < 1 || Number(v.adapterVersion) > 100000) return false;
   if (v.aliases !== undefined && (!Array.isArray(v.aliases) || v.aliases.length > 5 || !v.aliases.every(a => string(a, 1, 300)))) return false;
-  const path = hotstarObservationPath(v.pagePath);
-  if ((v.ref.platformId === 'hotstar' || v.pagePath !== undefined) &&
-    (v.ref.platformId !== 'hotstar' || !path || path.titleId !== v.ref.titleId || path.mediaType !== v.mediaType)) return false;
-  if (v.credits !== undefined && (!path || !isObject(v.credits) || !only(v.credits, ['directors', 'actors']) ||
+  const path = v.ref.platformId === 'hotstar' ? hotstarObservationPath(v.pagePath) : appleObservationPath(v.pagePath);
+  if (v.ref.platformId === 'netflix' ? v.pagePath !== undefined : !path || path.titleId !== v.ref.titleId || path.mediaType !== v.mediaType) return false;
+  if (v.credits !== undefined && (v.ref.platformId !== 'hotstar' || !path || !isObject(v.credits) || !only(v.credits, ['directors', 'actors']) ||
     !Array.isArray(v.credits.actors) || v.credits.actors.length > 12 || !validateFilmCredits(v.credits))) return false;
   if (v.seasonCount !== undefined && (v.ref.platformId !== 'hotstar' || v.mediaType !== 'series' ||
     !Number.isSafeInteger(v.seasonCount) || Number(v.seasonCount) < 1 || Number(v.seasonCount) > 200)) return false;
@@ -30,6 +32,8 @@ export function validObservation(v: unknown): v is TitleObservation {
     const meaning = v.mediaType === 'movie' ? 'movie_release' : 'season_release';
     if (!isObject(v.year) || v.year.meaning !== meaning || (v.mediaType === 'series' && v.seasonCount === undefined)) return false;
   }
+  if (v.ref.platformId === 'apple-tv' && v.year !== undefined &&
+    (!isObject(v.year) || v.year.meaning !== (v.mediaType === 'movie' ? 'movie_release' : 'series_start'))) return false;
   return v.year === undefined || (isObject(v.year) && only(v.year, ['value', 'meaning']) &&
     releaseYear(v.year.value) &&
     typeof v.year.meaning === 'string' && ['movie_release', 'series_start', 'season_release', 'unknown'].includes(v.year.meaning));
@@ -121,12 +125,11 @@ export function validateRequest(raw: unknown): Request {
 export type SenderRole = 'content' | 'popup' | 'options' | 'correction' | 'titles';
 type AuthorisedRequest = { role: 'content'; platformId: ContentPlatform } | { role: Exclude<SenderRole, 'content'> };
 
-function contentPlatform(url: URL): ContentPlatform | null {
-  if (url.protocol !== 'https:' || url.username || url.password) return null;
-  if (url.origin === 'https://www.netflix.com') return 'netflix';
-  if (url.origin === HOTSTAR_ORIGIN) return 'hotstar';
-  return null;
+function contentPlatform(url: URL): ContentPlatform | undefined {
+  return url.protocol !== 'https:' || url.username || url.password ? undefined : platformIdForOrigin(url.origin);
 }
+
+const browseSurfaces = { netflix: netflixBrowseSurface, hotstar: hotstarBrowseSurface, 'apple-tv': appleBrowseSurface };
 
 export function authoriseSender(sender: chrome.runtime.MessageSender, extensionId: string, command?: Request['type']): SenderRole {
   if (sender.id !== extensionId || !sender.url) throw new Error('Message sender is not authorised.');
@@ -137,7 +140,7 @@ export function authoriseSender(sender: chrome.runtime.MessageSender, extensionI
   }
   const platformId = contentPlatform(url);
   if (platformId && sender.frameId === 0 && sender.tab?.id !== undefined && sender.documentId && !sender.tab.incognito) {
-    const browsing = platformId === 'netflix' ? netflixBrowseSurface(url) : hotstarBrowseSurface(url);
+    const browsing = browseSurfaces[platformId](url);
     if (browsing || command === 'RELEASE_DEMAND' || command === 'GET_PUBLIC_STATUS') return 'content';
   }
   throw new Error('Message sender is not authorised.');
@@ -161,6 +164,8 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
     if (title?.titleId !== request.observation.ref.titleId || title.mediaType !== request.observation.mediaType)
       throw new Error('Invalid title credits for this page.');
   }
+  if (platformId === 'apple-tv' && 'observation' in request && request.observation.year &&
+    appleTitlePath(url)?.titleId !== request.observation.ref.titleId) throw new Error('Invalid title year for this page.');
   return { role, platformId };
 }
 export function authoriseCommand(role: SenderRole, type: Request['type']): void {

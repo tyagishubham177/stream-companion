@@ -153,6 +153,10 @@ export class Overlay {
           ? 'Matched using the title and credits shown by JioHotstar.'
           : state.matchBasis === 'seasons' ? 'Matched using JioHotstar’s title, displayed year and season count.'
             : 'Matched using JioHotstar’s film title and release year.', 'meta'));
+      if (state && (state.kind === 'rated' || state.kind === 'unrated') && state.identitySource === 'apple-tv')
+        panel.append(element('p', state.matchBasis === 'credits'
+          ? 'Matched using Apple TV’s public release year, director and cast.'
+          : 'Matched using Apple TV’s public title, release year and type.', 'meta'));
       if (!record.ratingIssue) {
         panel.append(element('p', `Last fetched ${new Date(record.fetchedAt).toLocaleString()}`, 'meta'));
         panel.append(element('p', record.provider === 'imdb-dataset' ? 'The ratings download refreshes daily when needed.' :

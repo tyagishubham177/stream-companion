@@ -11,7 +11,7 @@ export interface PlatformTitleRef { platformId: string; titleId: string }
 export interface ExternalTitleRef { namespace: 'imdb'; id: string }
 export type MediaType = 'movie' | 'series' | 'unknown';
 export type YearMeaning = 'movie_release' | 'series_start' | 'season_release' | 'unknown';
-export type PlatformMetadataSource = 'netflix' | 'hotstar';
+export type PlatformMetadataSource = 'netflix' | 'hotstar' | 'apple-tv';
 export interface TitleObservation {
   ref: PlatformTitleRef;
   displayTitle: string;

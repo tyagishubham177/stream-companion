@@ -2,6 +2,12 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.8.0 — Apple TV
+
+- Add IMDb badges and personal title marks to Apple TV films and series on Home, Essentials and other collections, browse rows, search and title details.
+- Use Apple’s stable IDs for matching. Series and supported episode cards share one title record, and the extension keeps controls out of the active player.
+- Match titles through Wikidata when possible and use Apple’s public release metadata for an exact title, year and type match when needed.
+
 ## 0.7.0 — IMDb dataset and paced ratings
 
 - Show ratings and vote counts for matched titles from IMDb’s official daily dataset. OMDb supplies title matching and verification.

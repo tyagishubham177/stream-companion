@@ -63,7 +63,7 @@ function render(): void {
   element('empty-heading').textContent = snapshot.marks.length ? 'No titles match this view' : 'Your titles will appear here';
   element('empty-detail').textContent = snapshot.marks.length
     ? 'Try another name or search across all your titles.'
-    : 'Use Mark on a Netflix or JioHotstar title to record whether you have watched it, want to watch it or won’t watch it.';
+    : 'Use Mark on Netflix, JioHotstar, or Apple TV to record whether you have watched a title, want to watch it or won’t watch it.';
   element('search-all').hidden = filter === 'all' || snapshot.marks.length === 0;
   if (focusedRef && focusedControl) {
     const row = [...list.querySelectorAll<HTMLElement>('li[data-ref]')].find(item => item.dataset.ref === focusedRef);

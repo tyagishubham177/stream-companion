@@ -8,6 +8,7 @@ import { DAY, DeferredError, Scheduler } from './scheduler';
 import type { Configuration } from './config';
 import type { DirectIdResult } from '../providers/wikidata';
 import type { NetflixMetadataResult } from '../providers/netflix-metadata';
+import type { AppleTvMetadataResolver } from '../providers/apple-tv-metadata';
 import { candidateRecord, type MatchingLog, type MatchStep } from './matching-log';
 
 interface Resolution { expiresAt: number; state?: LookupState; attempts: number; trace?: MatchStep[]; traceEpoch?: number }
@@ -39,7 +40,7 @@ export class Resolver {
   private readonly pending = new Map<string, { result: Promise<LookupResult>; demands: Set<() => boolean> }>();
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
     private readonly directIds?: DirectIds, private readonly metadata?: Metadata, private readonly matchingLog?: MatchingLog,
-    private readonly rateTitle?: RateTitle) {}
+    private readonly rateTitle?: RateTitle, private readonly appleMetadata?: Pick<AppleTvMetadataResolver, 'resolve'>) {}
   private async saveResolution(key: string, value: Resolution, trace: MatchStep[], logEpoch: number): Promise<void> {
     const loggingEnabled = (await this.config.settings()).matchingLogEnabled !== false;
     await this.repo.transaction(['resolutions', 'state'], async tx => {
@@ -151,6 +152,7 @@ export class Resolver {
     let evidence = o;
     let seasonEvidence = catalogueSeasonEvidence(o);
     let metadataMatch: Extract<NetflixMetadataResult, { kind: 'matched' }> | undefined;
+    let appleMetadataCheckedAt = o.ref.platformId === 'apple-tv' && hasStrongEvidence(o) ? Date.now() : undefined;
     // Hotstar publishes credits in the currently open title page. Unlike the
     // Netflix fallback this uses the bound DOM evidence, with no source fetch.
     const credits = o.ref.platformId === 'hotstar' ? validateFilmCredits(o.credits) : undefined;
@@ -212,6 +214,21 @@ export class Resolver {
             year: result.mediaType === 'movie' ? { value: result.year, meaning: 'movie_release' } : undefined,
             aliases: [...new Set([o.displayTitle, ...(o.aliases ?? [])])].filter(title => title !== result.title) };
           steps.push({ stage: 'enriched_evidence', outcome: result.mediaType === 'movie' ? 'movie_release_verified' : 'series_type_and_cast_verified', evidence });
+        }
+      }
+      if (o.ref.platformId === 'apple-tv' && !hasStrongEvidence(o) && this.appleMetadata &&
+        (direct.kind === 'missing' || direct.kind === 'deferred')) {
+        const result = await this.appleMetadata.resolve(o, demand);
+        steps.push({ stage: 'apple_tv_metadata', outcome: result.kind === 'deferred' ? `deferred:${result.reason}` : result.kind });
+        if (result.kind === 'deferred') return result;
+        if (result.kind === 'matched') {
+          if (o.mediaType !== result.mediaType) return { kind: 'needs_match', reason: 'contradiction' };
+          appleMetadataCheckedAt = result.checkedAt;
+          evidence = { ...o, displayTitle: result.title,
+            year: { value: result.year, meaning: result.mediaType === 'movie' ? 'movie_release' : 'series_start' },
+            aliases: [...new Set([o.displayTitle, ...(o.aliases ?? [])])].filter(title => title !== result.title).slice(0, 5) };
+          if (result.mediaType === 'movie' && result.credits) metadataMatch = { ...result, mediaType: 'movie' };
+          steps.push({ stage: 'enriched_evidence', outcome: result.mediaType === 'movie' ? 'movie_release_verified' : 'series_start_verified', evidence });
         }
       }
       if (!hasStrongEvidence(evidence) && !seasonEvidence && !(metadataMatch?.mediaType === 'series' && corroboratesSeriesCast(metadataMatch.credits, metadataMatch.credits))) {
@@ -285,13 +302,14 @@ export class Resolver {
     const accept = async (record: OmdbTitleRecord, matchBasis?: MatchBasis): Promise<LookupState> => {
       if (mapping?.rejected.includes(record.subject.id) || contradicts(o, record)) return await save({ kind: 'needs_match', reason: 'contradiction' });
       if (matchBasis === 'credits') evidence = { ...evidence, aliases: [...new Set([...(evidence.aliases ?? []), record.title])] };
-      const source = matchBasis === 'seasons' || metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
+      const source = appleMetadataCheckedAt !== undefined ? 'apple-tv' :
+        matchBasis === 'seasons' || metadataMatch ? (o.ref.platformId === 'hotstar' ? 'hotstar' : 'netflix') : undefined;
       const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
         const current = await txGet<Mapping>(tx, 'mappings', titleKey(o.ref));
         if ((current?.revision ?? 0) !== (mapping?.revision ?? 0) || (await txGet<number>(tx, 'state', 'mappingEpoch') ?? 0) !== resetEpoch || current?.rejected.includes(record.subject.id)) return false;
         txPut(tx, 'mappings', titleKey(o.ref), { ref: o.ref, subject: record.subject, revision: (current?.revision ?? 0) + 1,
           evidence, details: matchDetails(record), method: 'automatic', rejected: current?.rejected ?? [], resolverVersion: RESOLVER_VERSION,
-          ...(source ? { provenance: { source, checkedAt: metadataMatch?.checkedAt ?? Date.now(), ...(matchBasis ? { matchBasis } : {}) } } : {}) } satisfies Mapping);
+          ...(source ? { provenance: { source, checkedAt: appleMetadataCheckedAt ?? metadataMatch?.checkedAt ?? Date.now(), ...(matchBasis ? { matchBasis } : {}) } } : {}) } satisfies Mapping);
         return true;
       });
       if (accepted) return stateFromRecord(record, 'automatic', source, matchBasis);

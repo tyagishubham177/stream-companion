@@ -20,7 +20,7 @@ async function readPage(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id === undefined) throw new Error('No active tab.');
     const stats: PageStats | undefined = await chrome.tabs.sendMessage(tab.id, { type: 'SC_GET_PAGE_STATS' });
-    if (!stats || typeof stats.supported !== 'boolean' || !['netflix', 'hotstar'].includes(stats.platformId)) throw new Error('No page connection.');
+    if (!stats || typeof stats.supported !== 'boolean' || !['netflix', 'hotstar', 'apple-tv'].includes(stats.platformId)) throw new Error('No page connection.');
     const platform = platformLabel(stats.platformId);
     label.textContent = stats.supported ? platform : 'Unsupported surface';
     detail.textContent = stats.supported
@@ -42,7 +42,7 @@ async function readPage(): Promise<void> {
     }
   } catch {
     label.textContent = 'No connection';
-    detail.textContent = 'Open Netflix or JioHotstar. After installing or updating, refresh that tab to connect.';
+    detail.textContent = 'Open Netflix, JioHotstar, or Apple TV. After installing or updating, refresh that tab to connect.';
     element('page-stats').hidden = true;
   }
 }

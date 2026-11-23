@@ -1,6 +1,8 @@
 # Stream Companion
 
-A personal Chrome extension for **IMDb ratings and title marks on Netflix and JioHotstar**. Scores for matched titles come from IMDb’s official ratings dataset. Your OMDb key supports matching new titles.
+A personal Chrome extension for **IMDb ratings and title marks on Netflix, JioHotstar, and Apple TV**. Scores for matched titles come from IMDb’s official ratings dataset. Your OMDb key supports matching new titles.
+
+**0.8.0 update:** On Apple TV, browse Home, Essentials and other collections, TV Shows, search and movie and series details with IMDb badges and personal marks. Supported Continue Watching and episode pages use the parent series’ IMDb rating and marks. Controls stay out of the active player.
 
 **0.6.0 update:** **IMDb ratings** and **Mark as watched** are independent switches in the popup and Settings. Mark as watched enables Watched, Want to watch and Won’t watch; the other preferences are under Advanced settings. Both switches apply to both platforms. Your titles keeps Netflix and JioHotstar marks separate and links back to the source title.
 
@@ -45,7 +47,7 @@ Browser fixtures use disposable profiles, fake titles and fake keys. HTTP destin
 1. Build with `npm run build`.
 2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `D:\Coding Projects\chrome extensions\stream-companion\dist`.
 3. To match new titles, obtain or activate an [OMDb key](https://www.omdbapi.com/apikey.aspx) and choose **Save & test** in Stream Companion Settings. Saved matches and title marks work without a key.
-4. Reload a Netflix or JioHotstar browse tab. Use the popup’s two switches, then use the IMDb badge for rating details or Mark for your watch decisions.
+4. Reload a Netflix, JioHotstar, or Apple TV browse tab. Use the popup’s two switches, then use the IMDb badge for rating details or Mark for your watch decisions.
 
 No server runs in production. `npm run dev` rebuilds TypeScript while editing; changes to public HTML/CSS need a fresh build. Reload the extension in `chrome://extensions` and refresh streaming tabs after updates.
 
@@ -55,7 +57,7 @@ To make a local ZIP:
 npm run package
 ```
 
-The package is written to `releases\stream-companion-0.7.0.zip`. Extract it to a permanent folder before using Load unpacked. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+The package is written to `releases\stream-companion-0.8.0.zip`. Extract it to a permanent folder before using Load unpacked. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, confirm access to the IMDb dataset host if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 
@@ -84,13 +86,14 @@ Information courtesy of [IMDb](https://www.imdb.com). Used with permission. The 
 
 ## Structure
 
-- `src/platforms`: shared adapter contract and separate Netflix and JioHotstar adapters.
+- `src/platforms`: shared adapter contract and separate Netflix, JioHotstar, and Apple TV adapters.
 - `src/features/ratings`: badge presentation and retry policy.
 - `src/content`: card lifecycle, visibility and accessible overlay.
 - `src/background`: authorization, resolver, transactional storage and shared request scheduler.
 - `src/providers`: fixed-origin OMDb title matching and local IMDb ratings snapshots.
 - `src/providers/wikidata.ts`: batched public identity lookup, separate cache and cooldown.
 - `src/providers/netflix-metadata.ts`: cookie-free public movie metadata, bounded parsing, separate cache and cooldown.
+- `src/providers/apple-tv-metadata.ts`: cookie-free public movie and series metadata with bound title IDs and a separate cache.
 - `src/pages`: popup, settings and correction UI.
 - `src/shared`: versioned messages, identities and validation.
 - `docs/Stream_Companion_Design_v1.md`: product/technical design and extension roadmap.

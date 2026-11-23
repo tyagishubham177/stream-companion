@@ -85,7 +85,7 @@ export class MarksController {
         this.schedule();
       });
       this.observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true,
-        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'data-testid', 'hidden', 'alt',
+        attributeFilter: ['href', 'aria-label', 'aria-hidden', 'data-uia', 'data-testid', 'hidden', 'inert', 'alt',
           ...(adapter.id === 'hotstar' ? ['src', 'srcset'] : [])] });
       this.scan();
     }
@@ -155,6 +155,7 @@ export class MarksController {
     entry.mount.update(mark, entry.observation, settings.ratingsEnabled !== false, corner);
     const obscured = this.adapter.isObscured(entry.tile) || !!entry.tile.closest('[aria-hidden="true"],[hidden],[inert]');
     if (entry.mount.button.hidden !== obscured) entry.mount.button.hidden = obscured;
+    if (obscured && this.view?.owns(entry.mount.button)) this.view.close(false);
     const pending = !this.known.has(titleKey(entry.observation.ref));
     if (entry.mount.button.disabled !== pending) entry.mount.button.disabled = pending;
     const expanded = !!this.adapter.expandedOwner?.(entry.tile);

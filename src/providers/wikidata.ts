@@ -1,5 +1,6 @@
 import type { PlatformTitleRef } from '../shared/contracts';
 import { Repository, txGet, txPut } from '../background/repository';
+import { APPLE_TV_ID } from '../platforms/apple-tv/routes';
 
 export type DirectIdResult =
   | { kind: 'matched'; imdbId: string; entityIds: string[]; checkedAt: number }
@@ -9,8 +10,9 @@ export type DirectIdResult =
 
 type CachedResult = Exclude<DirectIdResult, { kind: 'deferred' }>;
 const PLATFORM_LOOKUPS = {
-  netflix: { property: 'P1874', idColumn: 'netflixId' },
-  hotstar: { property: 'P11049', idColumn: 'hotstarId' },
+  netflix: { property: 'wdt:P1874', idColumn: 'netflixId' },
+  hotstar: { property: 'wdt:P11049', idColumn: 'hotstarId' },
+  'apple-tv': { property: '(wdt:P9586|wdt:P9751)', idColumn: 'appleTvId' },
 } as const;
 type WikidataPlatform = keyof typeof PLATFORM_LOOKUPS;
 interface SourceCache { expiresAt: number; result: CachedResult }
@@ -33,7 +35,8 @@ interface Job {
 
 const TRANSPORT = 'wikidata:transport';
 const DAY = 86400000;
-const ID = /^\d{1,12}$/;
+const NUMERIC_ID = /^\d{1,12}$/;
+const idPattern = (platformId: WikidataPlatform) => platformId === 'apple-tv' ? APPLE_TV_ID : NUMERIC_ID;
 const IMDB = /^tt\d{7,12}$/;
 const ENTITY = /^https?:\/\/www\.wikidata\.org\/entity\/(Q[1-9]\d{0,11})$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -61,8 +64,9 @@ function expectedColumns(head: unknown, columns: string[]): boolean {
 /** A complete result set is needed: every distinct IMDb identity participates in ambiguity checks. */
 export function parseWikidataResponse(raw: unknown, requestedIds: string[], now: number, platformId: WikidataPlatform = 'netflix'): Map<string, CachedResult> {
   const { idColumn } = PLATFORM_LOOKUPS[platformId];
+  const pattern = idPattern(platformId);
   const columns = [idColumn, 'item', 'imdbId'];
-  if (!Number.isFinite(now) || requestedIds.length < 1 || requestedIds.length > 20 || !requestedIds.every(id => typeof id === 'string' && ID.test(id)))
+  if (!Number.isFinite(now) || requestedIds.length < 1 || requestedIds.length > 20 || !requestedIds.every(id => typeof id === 'string' && pattern.test(id)))
     throw new LookupFailure('provider', 'The title mapping request was invalid.');
   if (!object(raw) || !expectedColumns(raw.head, columns) ||
     !object(raw.results) || !Array.isArray(raw.results.bindings) || raw.results.bindings.length > 1000 ||
@@ -76,7 +80,7 @@ export function parseWikidataResponse(raw: unknown, requestedIds: string[], now:
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
     const titleId = literal(row[idColumn]), imdbId = literal(row.imdbId);
     const entity = object(row.item) && row.item.type === 'uri' && typeof row.item.value === 'string' ? row.item.value.match(ENTITY)?.[1] : undefined;
-    if (!titleId || !ID.test(titleId) || !requested.has(titleId) || !imdbId || !IMDB.test(imdbId) || !entity)
+    if (!titleId || !pattern.test(titleId) || !requested.has(titleId) || !imdbId || !IMDB.test(imdbId) || !entity)
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
     const identities = found.get(titleId) ?? new Map<string, Set<string>>();
     const entities = identities.get(imdbId) ?? new Set<string>(); entities.add(entity);
@@ -127,8 +131,8 @@ export class WikidataResolver {
 
   async resolve(ref: PlatformTitleRef, demand: () => boolean): Promise<DirectIdResult> {
     const { platformId } = ref;
-    if (platformId !== 'netflix' && platformId !== 'hotstar') return { kind: 'missing' };
-    if (typeof ref.titleId !== 'string' || !ID.test(ref.titleId))
+    if (platformId !== 'netflix' && platformId !== 'hotstar' && platformId !== 'apple-tv') return { kind: 'missing' };
+    if (typeof ref.titleId !== 'string' || !idPattern(platformId).test(ref.titleId))
       return deferred('provider', 'The streaming title identity is invalid.');
     const key = sourceKey(ref);
     try {
@@ -238,7 +242,7 @@ export class WikidataResolver {
       const { property, idColumn } = PLATFORM_LOOKUPS[platformId];
       const values = ids.map(id => `"${id}"`).join(' ');
       const query = `PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?${idColumn} ?item ?imdbId WHERE { ` +
-        `VALUES ?${idColumn} { ${values} } ?item wdt:${property} ?${idColumn} ; wdt:P345 ?imdbId . }`;
+        `VALUES ?${idColumn} { ${values} } ?item ${property} ?${idColumn} ; wdt:P345 ?imdbId . }`;
       url.search = new URLSearchParams({ format: 'json', query }).toString();
       let response: Response;
       try {

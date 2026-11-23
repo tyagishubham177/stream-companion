@@ -9,6 +9,7 @@ import { DeferredError, Scheduler } from './scheduler';
 import { Resolver, candidateChecks, matchDetails, stateFromRecord, type RateTitle } from './resolver';
 import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
+import { AppleTvMetadataResolver } from '../providers/apple-tv-metadata';
 import { ImdbRatings, ImdbRatingsUnavailable } from '../providers/imdb-ratings';
 import { MarksService, MarkError } from './marks';
 import { HotstarPosterMemory } from './hotstar-posters';
@@ -36,7 +37,8 @@ const matchingEligibility = async () => { const s = await config.settings(); ret
 const directIds = new WikidataResolver(repo, matchingEligibility);
 const metadata = new NetflixMetadataResolver(repo, matchingEligibility);
 const matchingLog = new MatchingLog(repo, chrome.runtime.getManifest().version);
-const resolver = new Resolver(repo, scheduler, config, directIds, metadata, matchingLog, rateTitle);
+const resolver = new Resolver(repo, scheduler, config, directIds, metadata, matchingLog, rateTitle,
+  new AppleTvMetadataResolver(repo, matchingEligibility));
 const ready = Promise.all([config.ready(), repo.open()]).then(async () => { matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; });
 // Prevent a rejected startup promise becoming an unhandled rejection before the first message.
 void ready.catch(() => undefined);
