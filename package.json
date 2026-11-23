@@ -1,6 +1,6 @@
 {
   "name": "stream-companion",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "IMDb ratings and personal title marks for Netflix, JioHotstar, and Apple TV.",
   "type": "module",

@@ -14,7 +14,7 @@ const TITLE_ID = /^tt\d{7,12}$/;
 const RATING_ROW = /^(tt\d{7,12})\t([1-9]|10)(\.\d)?\t([1-9]\d{0,15})$/;
 
 interface Snapshot { fetchedAt?: number; retryAfter?: number }
-interface Score { score: number | null; votes: number | null; fetchedAt: number }
+export interface Score { score: number | null; votes: number | null; fetchedAt: number }
 interface Entry<T> { value: T }
 
 export class ImdbRatingsUnavailable extends Error {
@@ -101,7 +101,7 @@ async function readDataset(response: Response, signal: AbortSignal): Promise<Map
 /** One browser-local copy shared by all title lookups. */
 export class ImdbRatings {
   private generation = 0;
-  private downloading?: { controller: AbortController; work: Promise<void> };
+  private downloading?: { controller: AbortController; work: Promise<boolean> };
   private clearing?: Promise<void>;
 
   constructor(private readonly repo: Repository, private readonly fetcher: typeof fetch = fetch,
@@ -111,37 +111,71 @@ export class ImdbRatings {
     if (!TITLE_ID.test(id)) throw new Error('Invalid IMDb title ID.');
     await this.clearing;
     const generation = this.generation;
-    const snapshot = await this.repo.get<Snapshot>('state', SNAPSHOT_KEY);
     let failure: ImdbRatingsUnavailable | undefined;
-    if (!cacheOnly && (this.downloading || readyToRefresh(snapshot, this.clock()))) {
-      this.requireGeneration(generation);
-      try { await this.refresh(generation); }
+    if (!cacheOnly) {
+      try { await this.refreshWhenDue(generation); }
       catch (error) {
         failure = error instanceof ImdbRatingsUnavailable ? error :
           new ImdbRatingsUnavailable('The IMDb ratings download could not be saved. Check browser storage and try again.', this.clock() + RETRY_MS);
       }
     }
 
+    const { scores, snapshot } = await this.readSnapshot([id], generation);
+    const score = scores.get(id);
+    if (score) return score;
+    if (failure) throw failure;
+    if (cacheOnly) throw new ImdbRatingsUnavailable('An up-to-date IMDb ratings download is needed. Turn off cache-only mode to download it.');
+    throw new ImdbRatingsUnavailable('The IMDb ratings download is temporarily unavailable. Try again later.', snapshot?.retryAfter);
+  }
+
+  /** Read saved scores immediately, including stale hits during a refresh. */
+  async readCached(ids: readonly string[]): Promise<Map<string, Score>> {
+    if (ids.some(id => !TITLE_ID.test(id))) throw new Error('Invalid IMDb title ID.');
+    if (!ids.length) return new Map();
+    await this.clearing;
+    return (await this.readSnapshot(ids, this.generation)).scores;
+  }
+
+  async refreshIfDue(): Promise<boolean> {
+    await this.clearing;
+    return this.refreshWhenDue(this.generation);
+  }
+
+  private async readSnapshot(ids: readonly string[], generation: number): Promise<{ scores: Map<string, Score>; snapshot?: Snapshot }> {
     this.requireGeneration(generation);
     const db = await this.repo.open();
     const store = db.transaction('state').objectStore('state');
-    const current = (await idbRequest(store.get(SNAPSHOT_KEY)) as Entry<Snapshot> | undefined)?.value;
-    const fetchedAt = current?.fetchedAt;
-    if (fetchedAt !== undefined) {
-      const shard = (await idbRequest(store.get(shardKey(id.slice(2, 4)))) as Entry<Float64Array> | undefined)?.value;
-      this.requireGeneration(generation);
-      if (shard) {
-        const key = idNumber(id);
-        for (let i = 0; i < shard.length; i += 2) {
-          if (Math.floor(shard[i] / SCORE_BASE) === key) return { score: (shard[i] % SCORE_BASE) / 10, votes: shard[i + 1], fetchedAt };
-        }
-      }
-      if (fresh(fetchedAt, this.clock())) return { score: null, votes: null, fetchedAt };
-    }
+    const snapshot = (await idbRequest(store.get(SNAPSHOT_KEY)) as Entry<Snapshot> | undefined)?.value;
+    const fetchedAt = snapshot?.fetchedAt;
+    const scores = new Map<string, Score>();
     this.requireGeneration(generation);
-    if (failure) throw failure;
-    if (cacheOnly) throw new ImdbRatingsUnavailable('An up-to-date IMDb ratings download is needed. Turn off cache-only mode to download it.');
-    throw new ImdbRatingsUnavailable('The IMDb ratings download is temporarily unavailable. Try again later.', current?.retryAfter);
+    if (fetchedAt === undefined) return { scores, snapshot };
+
+    const requestedShards = new Map<string, Map<number, string>>();
+    for (const id of ids) {
+      const prefix = id.slice(2, 4);
+      let requested = requestedShards.get(prefix);
+      if (!requested) { requested = new Map(); requestedShards.set(prefix, requested); }
+      requested.set(idNumber(id), id);
+    }
+
+    const snapshotFresh = fresh(fetchedAt, this.clock());
+    await Promise.all(Array.from(requestedShards, async ([prefix, requested]) => {
+      const shard = (await idbRequest(store.get(shardKey(prefix))) as Entry<Float64Array> | undefined)?.value;
+      if (shard) for (let i = 0; i < shard.length && requested.size; i += 2) {
+        const packed = shard[i];
+        const key = Math.floor(packed / SCORE_BASE);
+        const id = requested.get(key);
+        if (id === undefined) continue;
+        scores.set(id, { score: (packed % SCORE_BASE) / 10, votes: shard[i + 1], fetchedAt });
+        requested.delete(key);
+      }
+      if (snapshotFresh) {
+        for (const id of requested.values()) scores.set(id, { score: null, votes: null, fetchedAt });
+      }
+    }));
+    this.requireGeneration(generation);
+    return { scores, snapshot };
   }
 
   clear(): Promise<void> {
@@ -161,7 +195,13 @@ export class ImdbRatings {
     if (generation !== this.generation) throw new ImdbRatingsUnavailable('The IMDb ratings cache was cleared. Try again.');
   }
 
-  private refresh(generation: number): Promise<void> {
+  private async refreshWhenDue(generation: number): Promise<boolean> {
+    const snapshot = await this.repo.get<Snapshot>('state', SNAPSHOT_KEY);
+    this.requireGeneration(generation);
+    return this.downloading?.work ?? (readyToRefresh(snapshot, this.clock()) ? this.refresh(generation) : false);
+  }
+
+  private refresh(generation: number): Promise<boolean> {
     if (this.downloading) return this.downloading.work;
     const controller = new AbortController();
     const work = this.download(generation, controller.signal).finally(() => {
@@ -171,7 +211,7 @@ export class ImdbRatings {
     return work;
   }
 
-  private async download(generation: number, cancel: AbortSignal): Promise<void> {
+  private async download(generation: number, cancel: AbortSignal): Promise<boolean> {
     const retryAfter = await this.repo.transaction(['state'], async tx => {
       const snapshot = await txGet<Snapshot>(tx, 'state', SNAPSHOT_KEY);
       this.requireGeneration(generation);
@@ -183,7 +223,7 @@ export class ImdbRatings {
       return nextAttempt;
     }, true);
     this.requireGeneration(generation);
-    if (retryAfter === undefined) return;
+    if (retryAfter === undefined) return false;
 
     let shards: Map<string, number[]>;
     try {
@@ -205,5 +245,7 @@ export class ImdbRatings {
       for (const [prefix, values] of shards) txPut(tx, 'state', shardKey(prefix), Float64Array.from(values));
       txPut(tx, 'state', SNAPSHOT_KEY, { fetchedAt: this.clock() } satisfies Snapshot);
     }, true);
+    this.requireGeneration(generation);
+    return true;
   }
 }

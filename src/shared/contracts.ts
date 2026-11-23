@@ -6,6 +6,7 @@ export const SCHEMA_VERSION = 3;
 export const PRODUCT_NAME = 'Stream Companion';
 export const HOTSTAR_POSTER_CAPACITY = 512;
 export const HOTSTAR_POSTER_BATCH_SIZE = 20;
+export const CACHED_LOOKUP_BATCH_SIZE = 100;
 
 export interface PlatformTitleRef { platformId: string; titleId: string }
 export interface ExternalTitleRef { namespace: 'imdb'; id: string }
@@ -53,7 +54,7 @@ export type LookupState =
   | { kind: 'setup_required' }
   | { kind: 'disabled' };
 export interface LookupResult {
-  state: LookupState; fingerprint: string; revision: number;
+  state: LookupState; fingerprint: string; revision: number; cached?: boolean; revalidate?: boolean;
 }
 export interface Settings {
   enabled: boolean; corner: 'top-right' | 'top-left'; cacheOnly: boolean;
@@ -72,6 +73,7 @@ export interface SavedMatch { ref: PlatformTitleRef; displayTitle: string; imdbI
 export interface CorrectionContext { id: string; observation: TitleObservation; revision: number }
 export interface PageStats {
   platformId: string; supported: boolean; tiles: number; rated: number; unresolved: number; cached: number;
+  stale?: number;
   posterLookups?: HotstarPosterLookupCounts;
 }
 export interface HotstarPosterBinding {
@@ -95,6 +97,7 @@ export type Request =
   | { type: 'OPEN_SETTINGS' }
   | { type: 'GET_PUBLIC_STATUS' }
   | { type: 'LOOKUP'; observation: TitleObservation }
+  | { type: 'LOOKUP_CACHED'; observations: TitleObservation[] }
   | { type: 'REFRESH'; observation: TitleObservation; revision: number }
   | { type: 'OPEN_CORRECTION'; observation: TitleObservation; revision: number }
   | { type: 'GET_STATUS' }
@@ -124,7 +127,8 @@ export type Request =
   | { type: 'LOOKUP_HOTSTAR_POSTER_RATING'; poster: HotstarPosterRatingRequest }
   | { type: 'OPEN_TITLES' };
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string; retryAfter?: number };
-export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef };
+export type Broadcast = { type: 'SC_INVALIDATE'; ref?: PlatformTitleRef; revision?: number } | { type: 'SC_MARKS_CHANGED'; ref?: PlatformTitleRef } |
+  { type: 'SC_RATINGS_REFRESHED' };
 export const DEFAULT_SETTINGS: Settings = { enabled: true, corner: 'top-right', cacheOnly: false, ratingsEnabled: true, marksEnabled: true, shadeWatched: true, fadePassed: true, automaticMatching: true, matchingLogEnabled: true };
 export const titleKey = (ref: PlatformTitleRef): string => JSON.stringify([ref.platformId, ref.titleId]);
 export const ratingKey = (subject: ExternalTitleRef): string => JSON.stringify(['omdb', 'imdb', subject.namespace, subject.id]);

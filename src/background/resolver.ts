@@ -15,10 +15,24 @@ interface Resolution { expiresAt: number; state?: LookupState; attempts: number;
 interface DirectIds { resolve(ref: TitleObservation['ref'], demand: () => boolean): Promise<DirectIdResult> }
 interface Metadata { resolve(ref: TitleObservation['ref'], demand: () => boolean, requireCredits?: boolean): Promise<NetflixMetadataResult> }
 type MatchBasis = 'credits' | 'seasons';
-export type RateTitle = (record: RatingRecord, cacheOnly: boolean) => Promise<RatingRecord>;
+export type RateTitle = (record: RatingRecord, cacheOnly: boolean, waitForRefresh?: boolean) => Promise<RatingRecord>;
+type ReadScores = (ids: readonly string[]) => Promise<Map<string, Pick<RatingRecord, 'score' | 'votes' | 'fetchedAt'>>>;
 
 export function matchDetails({ title, year, mediaType }: MatchedTitleDetails): MatchedTitleDetails {
   return { title, year, mediaType };
+}
+
+function observationAgrees(observation: TitleObservation, mapping: Mapping, details?: MatchedTitleDetails): boolean {
+  const { evidence } = mapping;
+  return (mapping.method !== 'automatic' || mapping.resolverVersion >= 1 && mapping.resolverVersion <= RESOLVER_VERSION) &&
+    (observation.mediaType === 'unknown' || evidence.mediaType === 'unknown' || observation.mediaType === evidence.mediaType) &&
+    (usableYear(observation) === undefined || usableYear(evidence) === undefined || usableYear(observation) === usableYear(evidence)) &&
+    (!details || !contradicts(observation, details));
+}
+
+function datasetRecord(subject: RatingRecord['subject'], observation: TitleObservation, details?: MatchedTitleDetails): RatingRecord {
+  return { subject, source: 'imdb', provider: 'imdb-dataset', scale: 10, score: null, votes: null, fetchedAt: 0,
+    ...(details ?? { title: observation.displayTitle, year: String(usableYear(observation) ?? ''), mediaType: observation.mediaType }) };
 }
 
 function catalogueSeasonEvidence(observation: TitleObservation): { year: number; count: number } | undefined {
@@ -41,6 +55,37 @@ export class Resolver {
   constructor(readonly repo: Repository, readonly scheduler: Scheduler, readonly config: Configuration,
     private readonly directIds?: DirectIds, private readonly metadata?: Metadata, private readonly matchingLog?: MatchingLog,
     private readonly rateTitle?: RateTitle, private readonly appleMetadata?: Pick<AppleTvMetadataResolver, 'resolve'>) {}
+  async lookupCached(observations: readonly TitleObservation[], readScores: ReadScores): Promise<Array<LookupResult | null>> {
+    const settings = await this.config.settings();
+    if (!settings.enabled || settings.ratingsEnabled === false) return observations.map(() => null);
+    const tx = (await this.repo.open()).transaction(['mappings', 'ratings']);
+    const mappings = new Map<string, Promise<Mapping | undefined>>();
+    const saved = await Promise.all(observations.map(async observation => {
+      const key = titleKey(observation.ref);
+      let pending = mappings.get(key);
+      if (!pending) { pending = txGet<Mapping>(tx, 'mappings', key); mappings.set(key, pending); }
+      const mapping = await pending;
+      if (!mapping?.subject) return null;
+      const details = mapping.details ?? await txGet<OmdbTitleRecord>(tx, 'ratings', ratingKey(mapping.subject));
+      if (!observationAgrees(observation, mapping, details)) return null;
+      return { observation, mapping, record: datasetRecord(mapping.subject, mapping.evidence, details) };
+    }));
+    const ids = [...new Set(saved.flatMap(entry => entry ? [entry.record.subject.id] : []))];
+    if (!ids.length) return observations.map(() => null);
+    const scores = await readScores(ids);
+    return saved.map(entry => {
+      if (!entry) return null;
+      const { observation, mapping, record } = entry;
+      const score = scores.get(record.subject.id);
+      if (!score) return null;
+      const source = mapping.provenance?.source;
+      const revalidate = mapping.method === 'automatic' && !settings.cacheOnly && settings.automaticMatching !== false &&
+        (source === 'wikidata' && this.directIds || source === 'netflix' && this.metadata) &&
+        Date.now() - mapping.provenance!.checkedAt >= 30 * DAY;
+      return { state: stateFromMapping({ ...record, ...score }, mapping), fingerprint: observationFingerprint(observation),
+        revision: mapping.revision, cached: true, ...(revalidate ? { revalidate: true } : {}) };
+    });
+  }
   private async saveResolution(key: string, value: Resolution, trace: MatchStep[], logEpoch: number): Promise<void> {
     const loggingEnabled = (await this.config.settings()).matchingLogEnabled !== false;
     await this.repo.transaction(['resolutions', 'state'], async tx => {
@@ -72,7 +117,7 @@ export class Resolver {
       let state = match;
       if (this.rateTitle && (match.kind === 'rated' || match.kind === 'unrated')) {
         const settings = await this.config.settings();
-        const record = await this.rateTitle(match.record, settings.cacheOnly || !settings.enabled || !settings.ratingsEnabled || !isDemandActive());
+        const record = await this.rateTitle(match.record, settings.cacheOnly || !settings.enabled || !settings.ratingsEnabled || !isDemandActive(), refresh);
         const method = match.kind === 'rated' ? match.method : mapping?.subject?.id === record.subject.id ? mapping.method : 'automatic';
         state = stateFromRecord(record, method, match.identitySource, match.matchBasis);
       }
@@ -147,8 +192,11 @@ export class Resolver {
       return stateFromMapping(record, mapping);
     }
     if (refresh || settings.automaticMatching === false) return { kind: 'needs_match', reason: 'insufficient_evidence' };
-    if (!(await this.config.credential())) return { kind: 'setup_required' };
     if (settings.cacheOnly) return { kind: 'needs_match', reason: 'insufficient_evidence' };
+    const canUseVerifiedId = o.ref.platformId === 'netflix' || o.ref.platformId === 'apple-tv';
+    let credential: ReturnType<Configuration['credential']> | undefined;
+    const getCredential = () => credential ??= this.config.credential();
+    if ((!canUseVerifiedId || !this.directIds) && !(await getCredential())) return { kind: 'setup_required' };
     let evidence = o;
     let seasonEvidence = catalogueSeasonEvidence(o);
     let metadataMatch: Extract<NetflixMetadataResult, { kind: 'matched' }> | undefined;
@@ -175,9 +223,17 @@ export class Resolver {
         }
         try {
           const cached = await this.repo.get<OmdbTitleRecord>('ratings', ratingKey({ namespace: 'imdb', id: direct.imdbId }));
-          const record = cached && ratingCacheState(cached) === 'fresh' ? cached :
-            await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false, raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand, true);
-          await this.repo.put('ratings', ratingKey(record.subject), record);
+          const work = canUseVerifiedId ? direct.work : undefined;
+          const candidate = work ? { id: direct.imdbId, title: work.title, mediaType: work.mediaType, year: String(work.year) } : undefined;
+          const verified = candidate && !contradicts(o, candidate) && [o.displayTitle, ...(o.aliases ?? [])]
+            .some(title => normaliseTitle(title) === normaliseTitle(candidate.title));
+          const local = verified && candidate ? { ...datasetRecord({ namespace: 'imdb', id: direct.imdbId }, o, candidate),
+            ...matchDetails(candidate) } : undefined;
+          if (!local && !cached && !(await getCredential())) return { kind: 'setup_required' };
+          const record = local ?? cached ?? await this.scheduler.request({ i: direct.imdbId, plot: 'short' }, false,
+            raw => parseDetail(raw, direct.imdbId, Date.now()), false, demand, true);
+          if (!local && !cached) await this.repo.put('ratings', ratingKey(record.subject), record);
+          if (local) steps.push({ stage: 'wikidata_work', outcome: 'title_type_year_supported' });
           steps.push({ stage: 'direct_detail', outcome: contradicts(o, record) ? 'contradiction' : 'supported', candidate: candidateRecord(record) });
           if (contradicts(o, record)) return { kind: 'needs_match', reason: 'contradiction' };
           const accepted = await this.repo.transaction(['mappings', 'state'], async tx => {
@@ -202,6 +258,7 @@ export class Resolver {
           return lookupDeferred(error);
         }
       }
+      if (!(await getCredential())) return direct.kind === 'deferred' ? direct : { kind: 'setup_required' };
       if (o.ref.platformId === 'netflix' && (!hasStrongEvidence(o) || metadataChanged) && direct.kind === 'missing' && this.metadata) {
         const result = metadataSnapshot ?? await this.metadata.resolve(o.ref, demand);
         steps.push({ stage: 'netflix_metadata', outcome: result.kind === 'deferred' ? `deferred:${result.reason}` : result.kind });

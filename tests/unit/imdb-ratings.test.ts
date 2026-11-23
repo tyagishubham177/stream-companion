@@ -48,6 +48,62 @@ it('distinguishes title IDs of different lengths even when their numeric value i
   await expect(ratings.lookup('tt000001234567', false)).resolves.toMatchObject({ score: 10, votes: 50 });
 });
 
+it('reads a fresh snapshot in one batch and touches each requested shard once without downloading', async () => {
+  const { fetcher, run, now } = fixture();
+  const ids = ['tt0133093', 'tt0133094', 'tt32493765', 'tt0133093', 'tt9900000'];
+  await expect(run().readCached(ids)).resolves.toEqual(new Map());
+  expect(fetcher).not.toHaveBeenCalled();
+  await run().lookup(ids[0], false);
+
+  const get = vi.spyOn(IDBObjectStore.prototype, 'get');
+  try {
+    await expect(run().readCached(ids)).resolves.toEqual(new Map([
+      [ids[0], { score: 8.7, votes: 1800000, fetchedAt: now() }],
+      [ids[1], { score: null, votes: null, fetchedAt: now() }],
+      [ids[2], { score: 7.5, votes: 9509, fetchedAt: now() }],
+      [ids[4], { score: null, votes: null, fetchedAt: now() }],
+    ]));
+    expect(get.mock.calls.map(([key]) => key)).toEqual([
+      'imdb-ratings:snapshot', 'imdb-ratings:01', 'imdb-ratings:32', 'imdb-ratings:99',
+    ]);
+  } finally {
+    get.mockRestore();
+  }
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it('reads the old score during a single background refresh and keeps stale misses indeterminate', async () => {
+  const { fetcher, run, now, advance } = fixture();
+  const ratings = run();
+  const fetchedAt = now();
+  expect(await ratings.refreshIfDue()).toBe(true);
+  expect(await ratings.refreshIfDue()).toBe(false);
+  advance(day);
+
+  const started = deferred<void>();
+  const response = deferred<Response>();
+  fetcher.mockImplementationOnce(async () => {
+    started.resolve();
+    return response.promise;
+  });
+  const first = ratings.refreshIfDue();
+  await started.promise;
+  const second = ratings.refreshIfDue();
+  try {
+    await expect(ratings.readCached(['tt0133093', 'tt0133094'])).resolves.toEqual(new Map([
+      ['tt0133093', { score: 8.7, votes: 1800000, fetchedAt }],
+    ]));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    response.resolve(gzip(header + 'tt0133093\t8.8\t2000000\n'));
+  }
+  await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+  await expect(ratings.readCached(['tt0133093'])).resolves.toEqual(new Map([
+    ['tt0133093', { score: 8.8, votes: 2000000, fetchedAt: now() }],
+  ]));
+  expect(await ratings.refreshIfDue()).toBe(false);
+});
+
 it('refreshes after a day and picks up updated ratings and rows that were previously absent', async () => {
   const { fetcher, run, advance, now } = fixture();
   fetcher.mockResolvedValueOnce(gzip(header + matrix));

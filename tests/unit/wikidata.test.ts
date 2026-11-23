@@ -15,6 +15,13 @@ function binding(netflixId = '70136129', imdbId = 'tt0758790', entity = 'Q326731
 function response(bindings: unknown[] = [binding()]) {
   return { head: { vars: ['netflixId', 'item', 'imdbId'] }, results: { bindings } };
 }
+const literal = (value: string) => ({ type: 'literal', value });
+function workBindings(title = 'Fixture Film', mediaType = 'movie', year = '2008') {
+  return { workTitle: literal(title), workType: literal(mediaType), workYear: literal(year) };
+}
+function workResponse(bindings: unknown[], platformId = 'netflixId') {
+  return { head: { vars: [platformId, 'item', 'imdbId', 'workTitle', 'workType', 'workYear'] }, results: { bindings } };
+}
 function hotstarResponse(id = '8549') {
   const { netflixId, ...rest } = binding(id, 'tt1442437', 'Q184376');
   return { head: { vars: ['hotstarId', 'item', 'imdbId'] }, results: { bindings: [{ hotstarId: netflixId, ...rest }] } };
@@ -36,6 +43,38 @@ describe('complete direct-ID response validation', () => {
   it('collapses duplicate bindings and preserves multiple entities for one IMDb identity', () => {
     expect(parseWikidataResponse(response([binding(), binding(), binding('70136129', 'tt0758790', 'Q42')]), ['70136129'], now).get('70136129'))
       .toMatchObject({ kind: 'matched', entityIds: ['Q326731', 'Q42'] });
+  });
+  it('adds independently agreed work details to a unique Netflix mapping', () => {
+    const row = { ...binding(), ...workBindings() };
+    expect(parseWikidataResponse(workResponse([row, row]), ['70136129'], now).get('70136129'))
+      .toEqual({ kind: 'matched', imdbId: 'tt0758790', entityIds: ['Q326731'], checkedAt: now,
+        work: { title: 'Fixture Film', mediaType: 'movie', year: 2008 } });
+  });
+  it('reads work details with an Apple TV series identity', () => {
+    const id = 'umc.cmc.1srk2goyh2q2zdxcx605w8vtx';
+    const { netflixId, ...base } = binding(id, 'tt11280740', 'Q101096725');
+    const row = { ...base, appleTvId: netflixId, ...workBindings('Severance', 'series', '2022') };
+    expect(parseWikidataResponse(workResponse([row], 'appleTvId'), [id], now, 'apple-tv').get(id))
+      .toMatchObject({ imdbId: 'tt11280740', work: { title: 'Severance', mediaType: 'series', year: 2022 } });
+  });
+  it.each([
+    [workBindings('Fixture Film', 'episode')],
+    [workBindings('Fixture Film', 'movie', '1700')],
+    [workBindings('Fixture Film', 'movie', '2008-01-01')],
+    [workBindings('')],
+    [workBindings(), {}],
+    [workBindings(), workBindings('Fixture Film', 'movie', '2009')],
+    [workBindings(), workBindings('Fixture Film', 'series')],
+    [workBindings(), workBindings('Different Film')],
+  ])('retains the ID without unusable or conflicting work details %#', (...details) => {
+    const rows = details.map(work => ({ ...binding(), ...work }));
+    expect(parseWikidataResponse(workResponse(rows), ['70136129'], now).get('70136129'))
+      .toEqual({ kind: 'matched', imdbId: 'tt0758790', entityIds: ['Q326731'], checkedAt: now });
+  });
+  it('does not attach work details from two entities, even when IMDb IDs and details agree', () => {
+    const rows = [{ ...binding(), ...workBindings() }, { ...binding('70136129', 'tt0758790', 'Q42'), ...workBindings() }];
+    expect(parseWikidataResponse(workResponse(rows), ['70136129'], now).get('70136129'))
+      .toEqual({ kind: 'matched', imdbId: 'tt0758790', entityIds: ['Q326731', 'Q42'], checkedAt: now });
   });
   it('marks all different IMDb IDs as ambiguous, regardless of row order', () => {
     expect(parseWikidataResponse(response([binding(), binding('70136129', 'tt1234567', 'Q42')]), ['70136129'], now).get('70136129'))
@@ -210,6 +249,32 @@ describe('visible-demand batching and source caching', () => {
     expect(cached!.expiresAt - before).toBeGreaterThanOrEqual(30 * 86400000);
     await new WikidataResolver(repo, eligibility, fetcher).resolve(ref(), () => true);
     expect(fetcher).toHaveBeenCalledTimes(1); expect(await repo.all('attempts')).toHaveLength(0);
+  });
+  it('requests qualifying work statements and preserves work details across worker restarts', async () => {
+    const repo = repository();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(workResponse([
+      { ...binding(), ...workBindings() },
+    ]))));
+    const value = await new WikidataResolver(repo, eligibility, fetcher).resolve(ref(), () => true);
+    expect(value).toMatchObject({ work: { title: 'Fixture Film', mediaType: 'movie', year: 2008 } });
+    const query = new URL(String(fetcher.mock.calls[0][0])).searchParams.get('query')!;
+    expect(query).toContain('wikibase:BestRank');
+    expect(query).toContain('wikibase:timePrecision');
+    expect(query).toContain('P577');
+    expect(query).toContain('P580');
+    expect(await new WikidataResolver(repo, eligibility, fetcher).resolve(ref(), () => true)).toEqual(value);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('ignores invalid cached optional details without discarding a valid cached ID', async () => {
+    const repo = repository();
+    await repo.put('resolutions', cacheKey(), { expiresAt: Date.now() + 10000,
+      result: { kind: 'matched', imdbId: 'tt0758790', entityIds: ['Q326731'], checkedAt: Date.now(),
+        work: { title: 'Fixture Film', mediaType: 'episode', year: 2008 } } });
+    const fetcher = vi.fn<typeof fetch>(async input => dynamicResponse(input));
+    const result = await new WikidataResolver(repo, eligibility, fetcher).resolve(ref(), () => true);
+    expect(result).toMatchObject({ kind: 'matched', imdbId: 'tt0758790' });
+    expect(result).not.toHaveProperty('work');
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it.each(['missing', 'ambiguous'] as const)('stores an actual %s result for twenty-four hours', async kind => {
     const repo = repository(); const before = Date.now();

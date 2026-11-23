@@ -1,6 +1,8 @@
 # Stream Companion
 
-A personal Chrome extension for **IMDb ratings and title marks on Netflix, JioHotstar, and Apple TV**. Scores for matched titles come from IMDb’s official ratings dataset. Your OMDb key supports matching new titles.
+A personal Chrome extension for **IMDb ratings and title marks on Netflix, JioHotstar, and Apple TV**. Scores for matched titles come from IMDb’s official ratings dataset. An OMDb key supports matches that need extra evidence.
+
+**0.9.0 update:** Visible saved ratings come from a local batch, with snapshot refreshes running in the background. Netflix and Apple TV can use exact verified Wikidata links for new matches without OMDb.
 
 **0.8.0 update:** On Apple TV, browse Home, Essentials and other collections, TV Shows, search and movie and series details with IMDb badges and personal marks. Supported Continue Watching and episode pages use the parent series’ IMDb rating and marks. Controls stay out of the active player.
 
@@ -46,7 +48,7 @@ Browser fixtures use disposable profiles, fake titles and fake keys. HTTP destin
 
 1. Build with `npm run build`.
 2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `D:\Coding Projects\chrome extensions\stream-companion\dist`.
-3. To match new titles, obtain or activate an [OMDb key](https://www.omdbapi.com/apikey.aspx) and choose **Save & test** in Stream Companion Settings. Saved matches and title marks work without a key.
+3. For additional matching and manual corrections, obtain or activate an [OMDb key](https://www.omdbapi.com/apikey.aspx) and choose **Save & test** in Stream Companion Settings.
 4. Reload a Netflix, JioHotstar, or Apple TV browse tab. Use the popup’s two switches, then use the IMDb badge for rating details or Mark for your watch decisions.
 
 No server runs in production. `npm run dev` rebuilds TypeScript while editing; changes to public HTML/CSS need a fresh build. Reload the extension in `chrome://extensions` and refresh streaming tabs after updates.
@@ -57,7 +59,7 @@ To make a local ZIP:
 npm run package
 ```
 
-The package is written to `releases\stream-companion-0.8.0.zip`. Extract it to a permanent folder before using Load unpacked. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
+The package is written to `releases\stream-companion-0.9.0.zip`. Extract it to a permanent folder before using Load unpacked. The ZIP contains the built extension, not your settings or key. Move the unpacked directory only after removing/reloading its Chrome registration.
 
 For the installed unpacked copy, reload Stream Companion at `chrome://extensions`, confirm access to the IMDb dataset host if Chrome requests it, then refresh the streaming page. Your saved key, marks, corrections and usage accounting remain. See [privacy](docs/privacy.md) for what is read and shared.
 

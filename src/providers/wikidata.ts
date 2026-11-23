@@ -2,8 +2,10 @@ import type { PlatformTitleRef } from '../shared/contracts';
 import { Repository, txGet, txPut } from '../background/repository';
 import { APPLE_TV_ID } from '../platforms/apple-tv/routes';
 
+interface DirectWork { title: string; mediaType: 'movie' | 'series'; year: number }
+
 export type DirectIdResult =
-  | { kind: 'matched'; imdbId: string; entityIds: string[]; checkedAt: number }
+  | { kind: 'matched'; imdbId: string; entityIds: string[]; checkedAt: number; work?: DirectWork }
   | { kind: 'missing' }
   | { kind: 'ambiguous' }
   | { kind: 'deferred'; reason: 'busy' | 'offline' | 'provider'; message: string; retryAfter?: number };
@@ -16,6 +18,7 @@ const PLATFORM_LOOKUPS = {
 } as const;
 type WikidataPlatform = keyof typeof PLATFORM_LOOKUPS;
 interface SourceCache { expiresAt: number; result: CachedResult }
+interface IdentityEvidence { entities: Set<string>; work?: DirectWork; conflictingWork: boolean }
 interface TransportState {
   nextDispatchAt: number;
   leaseUntil: number;
@@ -39,6 +42,39 @@ const NUMERIC_ID = /^\d{1,12}$/;
 const idPattern = (platformId: WikidataPlatform) => platformId === 'apple-tv' ? APPLE_TV_ID : NUMERIC_ID;
 const IMDB = /^tt\d{7,12}$/;
 const ENTITY = /^https?:\/\/www\.wikidata\.org\/entity\/(Q[1-9]\d{0,11})$/;
+const WORK_COLUMNS = ['workTitle', 'workType', 'workYear'];
+const WORK_PREFIXES = [
+  'PREFIX wd: <http://www.wikidata.org/entity/>',
+  'PREFIX p: <http://www.wikidata.org/prop/>',
+  'PREFIX psv: <http://www.wikidata.org/prop/statement/value/>',
+  'PREFIX wikibase: <http://wikiba.se/ontology#>',
+  'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>',
+].join('\n');
+// Work details come from the item that links both IDs. Prefer its English
+// label, and use the title claim only when the English label is absent.
+const WORK_EVIDENCE = `
+  OPTIONAL { ?item rdfs:label ?englishTitle . FILTER (LANG(?englishTitle) = "en") }
+  OPTIONAL { ?item wdt:P1476 ?originalTitle . FILTER (!BOUND(?englishTitle)) }
+  BIND(STR(COALESCE(?englishTitle, ?originalTitle)) AS ?workTitle)
+  OPTIONAL {
+    VALUES (?workClass ?workType ?dateProperty ?valueProperty) {
+      (wd:Q11424 "movie" p:P577 psv:P577)
+      (wd:Q5398426 "series" p:P580 psv:P580)
+      (wd:Q1259759 "series" p:P580 psv:P580)
+    }
+    ?item wdt:P31 ?workClass .
+    FILTER NOT EXISTS {
+      VALUES ?nonWholeWork { wd:Q21191270 wd:Q3464665 }
+      ?item wdt:P31 ?nonWholeWork .
+    }
+    OPTIONAL {
+      ?item ?dateProperty ?dateStatement .
+      ?dateStatement a wikibase:BestRank ; ?valueProperty ?timeNode .
+      ?timeNode wikibase:timeValue ?date ; wikibase:timePrecision ?precision ; wikibase:timeCalendarModel ?calendar .
+      BIND(IF(?precision >= 9 && ?calendar = wd:Q1985727, STR(YEAR(?date)), "") AS ?workYear)
+    }
+  }
+`;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 const deferred = (reason: 'busy' | 'offline' | 'provider', message: string, retryAfter?: number): DirectIdResult =>
@@ -61,11 +97,26 @@ function expectedColumns(head: unknown, columns: string[]): boolean {
   return vars.length === columns.length && columns.every(name => vars.includes(name));
 }
 
+function validWork(work: unknown, now: number): work is DirectWork {
+  return object(work) && typeof work.title === 'string' && work.title.trim().length > 0 && work.title.length <= 300 &&
+    !/[\u0000-\u001f\u007f]/u.test(work.title) && (work.mediaType === 'movie' || work.mediaType === 'series') &&
+    typeof work.year === 'number' && Number.isInteger(work.year) && work.year >= 1888 && work.year <= new Date(now).getUTCFullYear() + 1;
+}
+
+function rowWork(row: Record<string, unknown>, now: number): DirectWork | undefined {
+  const year = literal(row.workYear);
+  if (!year || !/^\d{4}$/.test(year)) return;
+  const work = { title: literal(row.workTitle), mediaType: literal(row.workType), year: Number(year) };
+  return validWork(work, now) ? work : undefined;
+}
+
 /** A complete result set is needed: every distinct IMDb identity participates in ambiguity checks. */
 export function parseWikidataResponse(raw: unknown, requestedIds: string[], now: number, platformId: WikidataPlatform = 'netflix'): Map<string, CachedResult> {
   const { idColumn } = PLATFORM_LOOKUPS[platformId];
   const pattern = idPattern(platformId);
-  const columns = [idColumn, 'item', 'imdbId'];
+  const baseColumns = [idColumn, 'item', 'imdbId'];
+  const enrichedColumns = [...baseColumns, ...WORK_COLUMNS];
+  const columns = object(raw) && expectedColumns(raw.head, enrichedColumns) ? enrichedColumns : baseColumns;
   if (!Number.isFinite(now) || requestedIds.length < 1 || requestedIds.length > 20 || !requestedIds.every(id => typeof id === 'string' && pattern.test(id)))
     throw new LookupFailure('provider', 'The title mapping request was invalid.');
   if (!object(raw) || !expectedColumns(raw.head, columns) ||
@@ -74,7 +125,7 @@ export function parseWikidataResponse(raw: unknown, requestedIds: string[], now:
     raw.error !== undefined || raw.warning !== undefined || raw.warnings !== undefined)
     throw new LookupFailure('provider', 'The title mapping service returned an unsupported response.');
   const requested = new Set(requestedIds);
-  const found = new Map<string, Map<string, Set<string>>>();
+  const found = new Map<string, Map<string, IdentityEvidence>>();
   for (const row of raw.results.bindings) {
     if (!object(row) || Object.keys(row).some(key => !columns.includes(key)))
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
@@ -82,9 +133,16 @@ export function parseWikidataResponse(raw: unknown, requestedIds: string[], now:
     const entity = object(row.item) && row.item.type === 'uri' && typeof row.item.value === 'string' ? row.item.value.match(ENTITY)?.[1] : undefined;
     if (!titleId || !pattern.test(titleId) || !requested.has(titleId) || !imdbId || !IMDB.test(imdbId) || !entity)
       throw new LookupFailure('provider', 'The title mapping service returned invalid identity data.');
-    const identities = found.get(titleId) ?? new Map<string, Set<string>>();
-    const entities = identities.get(imdbId) ?? new Set<string>(); entities.add(entity);
-    identities.set(imdbId, entities); found.set(titleId, identities);
+    const identities = found.get(titleId) ?? new Map<string, IdentityEvidence>();
+    const evidence = identities.get(imdbId) ?? { entities: new Set<string>(), conflictingWork: false };
+    evidence.entities.add(entity);
+    const work = rowWork(row, now);
+    if (!work || (evidence.work && (work.title !== evidence.work.title || work.mediaType !== evidence.work.mediaType || work.year !== evidence.work.year))) {
+      evidence.conflictingWork = true;
+    } else {
+      evidence.work = work;
+    }
+    identities.set(imdbId, evidence); found.set(titleId, identities);
   }
   const result = new Map<string, CachedResult>();
   for (const id of requested) {
@@ -92,8 +150,9 @@ export function parseWikidataResponse(raw: unknown, requestedIds: string[], now:
     if (!identities?.size) result.set(id, { kind: 'missing' });
     else if (identities.size > 1) result.set(id, { kind: 'ambiguous' });
     else {
-      const [imdbId, entities] = identities.entries().next().value!;
-      result.set(id, { kind: 'matched', imdbId, entityIds: [...entities].sort(), checkedAt: now });
+      const [imdbId, evidence] = identities.entries().next().value!;
+      const work = evidence.entities.size === 1 && !evidence.conflictingWork ? evidence.work : undefined;
+      result.set(id, { kind: 'matched', imdbId, entityIds: [...evidence.entities].sort(), checkedAt: now, ...(work ? { work } : {}) });
     }
   }
   return result;
@@ -137,7 +196,15 @@ export class WikidataResolver {
     const key = sourceKey(ref);
     try {
       const cached = await this.repo.get<SourceCache>('resolutions', key);
-      if (validCache(cached, Date.now())) return cached.result;
+      const now = Date.now();
+      if (validCache(cached, now)) {
+        const result = cached.result;
+        if (result.kind === 'matched' && result.work !== undefined && (result.entityIds.length !== 1 || !validWork(result.work, now))) {
+          const { work, ...identity } = result;
+          return identity;
+        }
+        return result;
+      }
       const settings = await this.getEligibility();
       if (!settings.enabled || settings.cacheOnly) return deferred('busy', 'Automatic title matching is paused in Settings.');
       if (!demand()) return deferred('busy', 'The title is no longer visible.');
@@ -241,8 +308,13 @@ export class WikidataResolver {
       const url = new URL('https://query.wikidata.org/sparql');
       const { property, idColumn } = PLATFORM_LOOKUPS[platformId];
       const values = ids.map(id => `"${id}"`).join(' ');
-      const query = `PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?${idColumn} ?item ?imdbId WHERE { ` +
-        `VALUES ?${idColumn} { ${values} } ?item ${property} ?${idColumn} ; wdt:P345 ?imdbId . }`;
+      const withWork = platformId !== 'hotstar';
+      const prefixes = 'PREFIX wdt: <http://www.wikidata.org/prop/direct/>\n' + (withWork ? WORK_PREFIXES + '\n' : '');
+      const fields = withWork ? ' ?' + WORK_COLUMNS.join(' ?') : '';
+      const select = withWork ? 'SELECT DISTINCT' : 'SELECT';
+      const query = prefixes + select + ' ?' + idColumn + ' ?item ?imdbId' + fields + ' WHERE { ' +
+        'VALUES ?' + idColumn + ' { ' + values + ' } ?item ' + property + ' ?' + idColumn + ' ; wdt:P345 ?imdbId . ' +
+        (withWork ? WORK_EVIDENCE : '') + '}';
       url.search = new URLSearchParams({ format: 'json', query }).toString();
       let response: Response;
       try {

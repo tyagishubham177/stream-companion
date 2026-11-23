@@ -10,7 +10,7 @@ import { Resolver, candidateChecks, matchDetails, stateFromRecord, type RateTitl
 import { WikidataResolver } from '../providers/wikidata';
 import { NetflixMetadataResolver } from '../providers/netflix-metadata';
 import { AppleTvMetadataResolver } from '../providers/apple-tv-metadata';
-import { ImdbRatings, ImdbRatingsUnavailable } from '../providers/imdb-ratings';
+import { IMDB_RATINGS_FRESH_MS, ImdbRatings, ImdbRatingsUnavailable } from '../providers/imdb-ratings';
 import { MarksService, MarkError } from './marks';
 import { HotstarPosterMemory } from './hotstar-posters';
 import { clearRatingCache, HotstarPosterRatings } from './hotstar-poster-ratings';
@@ -24,9 +24,17 @@ const scheduler = new Scheduler(repo, () => config.credential(), fetch, async ()
 const imdbRatings = new ImdbRatings(repo);
 const emptyDatasetRating = (matchedTitle: RatingRecord) =>
   ({ ...matchedTitle, provider: 'imdb-dataset' as const, score: null, votes: null, fetchedAt: 0 });
-const rateTitle: RateTitle = async (matchedTitle, cacheOnly) => {
+const rateTitle: RateTitle = async (matchedTitle, cacheOnly, waitForRefresh = false) => {
   const record = emptyDatasetRating(matchedTitle);
-  try { return { ...record, ...await imdbRatings.lookup(record.subject.id, cacheOnly) }; }
+  try {
+    const id = record.subject.id;
+    const cached = waitForRefresh ? undefined : (await imdbRatings.readCached([id])).get(id);
+    if (cached) {
+      if (!cacheOnly && Date.now() - cached.fetchedAt >= IMDB_RATINGS_FRESH_MS) refreshScores();
+      return { ...record, ...cached };
+    }
+    return { ...record, ...await imdbRatings.lookup(id, cacheOnly) };
+  }
   catch (error) {
     if (!(error instanceof ImdbRatingsUnavailable)) throw error;
     return { ...record, ratingIssue: { message: error.message, retryAfter: error.retryAfter } };
@@ -55,9 +63,23 @@ interface Client { tabId: number; documentId: string; platformId?: string }
 const rates = new Map<string, { since: number; count: number; active: number }>();
 let actionsSincePrune = 0;
 let maintenanceFailed = false;
+let snapshotRefreshFailed = false;
+let snapshotRefresh: Promise<void> | undefined;
+
+function refreshScores(): void {
+  if (snapshotRefresh) return;
+  snapshotRefresh = config.settings().then(async settings => {
+    if (!settings.enabled || !settings.ratingsEnabled || settings.cacheOnly) return;
+    if (await imdbRatings.refreshIfDue()) {
+      snapshotRefreshFailed = false;
+      await broadcast({ type: 'SC_RATINGS_REFRESHED' });
+    }
+  }).catch(() => { snapshotRefreshFailed = true; }).finally(() => { snapshotRefresh = undefined; });
+}
 const demands = new Map<string, Map<string, { active: boolean; at: number }>>();
 const navigationRates = new Map<string, { at: number; count: number }>();
 let clientMutations: Promise<void> = Promise.resolve();
+const registrations = new Map<string, Promise<void>>();
 function mutateClients(work: (clients: Record<string, Client>) => void): Promise<void> {
   const result = clientMutations.then(async () => {
     const { clients = {} } = await chrome.storage.session.get('clients') as { clients?: Record<string, Client> };
@@ -85,7 +107,19 @@ async function register(sender: chrome.runtime.MessageSender, platformId: string
   if (sender.tab?.id === undefined || !sender.documentId) return;
   // Documents are ephemeral routing metadata, never a record of titles or full URLs.
   const documentId = sender.documentId; const tabId = sender.tab.id;
-  await mutateClients(clients => { clients[documentId] = { tabId, documentId, platformId }; });
+  const existing = registrations.get(documentId);
+  if (existing) return existing;
+  const pending = mutateClients(clients => {
+    delete clients[documentId];
+    clients[documentId] = { tabId, documentId, platformId };
+  });
+  registrations.set(documentId, pending);
+  if (registrations.size > 100) registrations.delete(registrations.keys().next().value!);
+  try { await pending; }
+  catch (error) {
+    if (registrations.get(documentId) === pending) registrations.delete(documentId);
+    throw error;
+  }
 }
 async function broadcast(message: Broadcast): Promise<void> {
   if (message.type === 'SC_MARKS_CHANGED') {
@@ -98,20 +132,22 @@ async function broadcast(message: Broadcast): Promise<void> {
     }
   }
   const { clients = {} } = await chrome.storage.session.get('clients') as { clients?: Record<string, Client> };
-  const targets = Object.values(clients).filter(client => !message.ref || (client.platformId ?? 'netflix') === message.ref.platformId);
+  const ref = 'ref' in message ? message.ref : undefined;
+  const targets = Object.values(clients).filter(client => !ref || (client.platformId ?? 'netflix') === ref.platformId);
   const failed: string[] = [];
   await Promise.all(targets.map(async client => {
     try { await chrome.tabs.sendMessage(client.tabId, message, { documentId: client.documentId }); }
     catch { failed.push(client.documentId); }
   }));
   if (failed.length) {
-    await mutateClients(latest => { for (const id of failed) { delete latest[id]; releaseDemand(id); } });
+    await mutateClients(latest => { for (const id of failed) { delete latest[id]; registrations.delete(id); releaseDemand(id); } });
   }
 }
 async function publicStatus(): Promise<PublicStatus> {
   const credential = await config.credential(); const settings = await config.settings();
   const { count, circuit } = await scheduler.status();
-  let provider: PublicStatus['provider'] = credential ? { kind: 'ready', message: 'OMDb key configured for title matching.' } : { kind: 'setup', message: 'Add an OMDb key to match new titles. Saved matches use IMDb ratings directly.' };
+  let provider: PublicStatus['provider'] = credential ? { kind: 'ready', message: 'OMDb key configured for title matching.' } :
+    { kind: 'setup', message: 'IMDb scores and verified ID matches work without a key. Add OMDb for titles that need extra matching.' };
   if (circuit?.kind) provider = { kind: 'paused', message: circuit.kind === 'key' ? 'OMDb rejected the key. Check or retest it in Settings.' : circuit.kind === 'quota' ? 'OMDb request limit reached. IMDb ratings for saved matches remain available.' : 'OMDb title matching is cooling down.', retryAfter: circuit.kind === 'key' ? undefined : circuit.until };
   if (count >= 900) provider = { kind: 'paused', message: 'The local request allowance is used up.' };
   else if (count >= 800 && !circuit?.kind) provider = { kind: 'paused', message: 'Automatic lookups paused; the remaining allowance is reserved for your actions.' };
@@ -211,7 +247,7 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
   rate.active++;
   try {
     await ready;
-    if (++actionsSincePrune >= 100) {
+    if (request.type !== 'LOOKUP_CACHED' && ++actionsSincePrune >= 100) {
       actionsSincePrune = 0;
       try { await repo.prune(Date.now()); await matchingLog.maintain(); maintenanceFailed = false; }
       catch { maintenanceFailed = true; }
@@ -247,6 +283,11 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
       case 'OPEN_TITLES': await chrome.tabs.create({ url: chrome.runtime.getURL('titles.html') }); return null;
       case 'OPEN_SETTINGS': await chrome.runtime.openOptionsPage(); return null;
       case 'LOOKUP': return await resolver.lookup(request.observation, false, undefined, liveDemand(sender, titleKey(request.observation.ref)));
+      case 'LOOKUP_CACHED': {
+        const local = await resolver.lookupCached(request.observations, ids => imdbRatings.readCached(ids));
+        if (local.some(result => !result || result.state.kind === 'rated' && result.state.stale)) refreshScores();
+        return local;
+      }
       case 'REFRESH': return await resolver.lookup(request.observation, true, request.revision);
       case 'UPDATE_SETTINGS': await config.update(request.settings); matchingLog.recording = (await config.settings()).matchingLogEnabled !== false; await broadcast({ type: 'SC_INVALIDATE' }); return null;
       case 'SET_API_KEY': await config.setKey(request.key.trim()); await broadcast({ type: 'SC_INVALIDATE' }); return null;
@@ -372,7 +413,8 @@ async function route(raw: unknown, sender: chrome.runtime.MessageSender): Promis
         return { product: 'Stream Companion', version: chrome.runtime.getManifest().version, protocol: PROTOCOL_VERSION,
           generatedAt: new Date().toISOString(), enabled: app.settings.enabled, cacheOnly: app.settings.cacheOnly,
           keyConfigured: app.keyConfigured, providerState: app.provider.kind, requests24h: app.requests24h,
-          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, matchingLogFailed: matchingLog.failed, platforms: ['netflix', 'hotstar'], features: ['ratings', 'marks'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
+          mappings: app.mappings, ratings: app.ratings, maintenanceFailed, snapshotRefreshFailed, matchingLogFailed: matchingLog.failed,
+          platforms: ['netflix', 'hotstar', 'apple-tv'], features: ['ratings', 'marks'], identityProvider: 'wikidata', metadataProvider: 'netflix-public' };
       }
     }
   } finally {
@@ -401,7 +443,7 @@ chrome.runtime.onInstalled.addListener(details => {
 });
 chrome.tabs.onRemoved.addListener(tabId => {
   void ready.then(async () => {
-    await mutateClients(clients => { for (const [id, client] of Object.entries(clients)) if (client.tabId === tabId) { delete clients[id]; releaseDemand(id); } });
+    await mutateClients(clients => { for (const [id, client] of Object.entries(clients)) if (client.tabId === tabId) { delete clients[id]; registrations.delete(id); releaseDemand(id); } });
   }).catch(() => undefined);
 });
 void ready.then(async () => { await repo.prune(Date.now()); await matchingLog.maintain(); }).catch(() => { maintenanceFailed = true; });

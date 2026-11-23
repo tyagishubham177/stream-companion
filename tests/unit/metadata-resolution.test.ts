@@ -202,13 +202,21 @@ describe('public Netflix movie metadata fallback', () => {
     expect(resolveMetadata).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
   });
 
-  it.each(['disabled', 'cache-only', 'no-key'] as const)('does not fetch public metadata in %s mode', async mode => {
+  it.each(['disabled', 'cache-only'] as const)('does not fetch public metadata in %s mode', async mode => {
     const { resolver, resolveMetadata, resolveDirect, request, config } = setup();
     if (mode === 'disabled') vi.spyOn(config, 'settings').mockResolvedValue({ ...DEFAULT_SETTINGS, enabled: false });
     if (mode === 'cache-only') vi.spyOn(config, 'settings').mockResolvedValue({ ...DEFAULT_SETTINGS, cacheOnly: true });
-    if (mode === 'no-key') vi.spyOn(config, 'credential').mockResolvedValue(undefined);
     expect((await resolver.lookup(observation())).state.kind).not.toBe('rated');
     expect(resolveMetadata).not.toHaveBeenCalled(); expect(resolveDirect).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
+  });
+
+  it('tries a verified identifier without a key and pauses the public metadata fallback on a miss', async () => {
+    const { resolver, resolveMetadata, resolveDirect, request, config } = setup();
+    vi.spyOn(config, 'credential').mockResolvedValue(undefined);
+    expect((await resolver.lookup(observation())).state.kind).toBe('setup_required');
+    expect(resolveDirect).toHaveBeenCalledTimes(1);
+    expect(resolveMetadata).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 });
 

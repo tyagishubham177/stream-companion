@@ -109,6 +109,7 @@ let profile: string;
 let extensionOrigin: string;
 const identityCalls: string[] = [];
 const metadataCalls: string[] = [];
+const omdbDetails: string[] = [];
 const searches: { title: string; year: string | null; type: string | null }[] = [];
 
 test.beforeAll(async ({}, info) => {
@@ -130,15 +131,19 @@ test.beforeAll(async ({}, info) => {
       expect(query).toContain('wdt:P9751');
       const ids = [...query.matchAll(/"(umc\.cmc\.[a-z0-9]{22,25})"/g)].map(match => match[1]);
       identityCalls.push(...ids);
-      return route.fulfill({ json: { head: { vars: ['appleTvId', 'item', 'imdbId'] }, results: {
-        bindings: ids.filter(id => directIds.has(id)).map(id => ({ appleTvId: { type: 'literal', value: id },
-          imdbId: { type: 'literal', value: directIds.get(id) },
-          item: { type: 'uri', value: id === movieId ? 'http://www.wikidata.org/entity/Q9100601' : 'http://www.wikidata.org/entity/Q9100602' },
-        })),
+      const literal = (value: string) => ({ type: 'literal', value });
+      return route.fulfill({ json: { head: { vars: ['appleTvId', 'item', 'imdbId', 'workTitle', 'workType', 'workYear'] }, results: {
+        bindings: ids.filter(id => directIds.has(id)).map(id => {
+          const imdbId = directIds.get(id)!;
+          const data = ratings[imdbId];
+          return { appleTvId: literal(id), imdbId: literal(imdbId), item: { type: 'uri', value: `http://www.wikidata.org/entity/Q${imdbId.slice(2)}` },
+            workTitle: literal(data.title), workType: literal(data.type), workYear: literal(data.year) };
+        }),
       } } });
     }
     if (url.hostname === 'www.omdbapi.com') {
       const id = url.searchParams.get('i'), title = url.searchParams.get('s');
+      if (id) omdbDetails.push(id);
       if (title) {
         const year = url.searchParams.get('y'), type = url.searchParams.get('type');
         searches.push({ title, year, type });
@@ -203,6 +208,9 @@ test('Apple TV Essentials rates movies and series, including a cold metadata fal
   await expect(mark(page.locator('#movie'))).toBeEnabled();
   await expect(mark(page.locator('#series'))).toBeEnabled();
   expect(identityCalls).toEqual(expect.arrayContaining([movieId, seriesId, fallbackId]));
+  expect(omdbDetails).not.toContain('tt9100601');
+  expect(omdbDetails).not.toContain('tt9100602');
+  expect(omdbDetails).toContain('tt9100603');
   expect(metadataCalls).toContain(fallbackPath);
   expect(searches).toContainEqual({ title: 'Mayday', year: '2026', type: 'movie' });
   await page.close();

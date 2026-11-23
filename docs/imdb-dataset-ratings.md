@@ -1,8 +1,8 @@
 # IMDb dataset ratings
 
-Stream Companion uses the official IMDb ratings snapshot for scores and vote counts after it has verified a title’s IMDb ID. OMDb still supplies search results and title metadata for manual and automatic matching. JioHotstar scores shown on the streaming page keep their existing attribution.
+Stream Companion uses the official IMDb ratings snapshot for scores and vote counts after it has verified a title’s IMDb ID. Netflix and Apple TV titles with an exact Wikidata link and agreeing title metadata can match without an OMDb key. OMDb remains available for more complex automatic matching and manual corrections. JioHotstar scores shown on the streaming page keep their existing attribution.
 
-The extension downloads the ratings-only snapshot from IMDb on demand and shares it across tabs, titles, and worker restarts. A valid download replaces the previous copy atomically. The snapshot becomes due after a day. A failed refresh leaves the last good copy available. A missing row and an unavailable snapshot produce distinct title states. Cache-only mode uses local data and clearing the rating cache removes the snapshot.
+The extension downloads the ratings-only snapshot from IMDb on demand and shares it across tabs, titles, and worker restarts. Visible saved matches use a batched local read, including when the snapshot is due after a day. A valid download replaces the previous copy atomically and updates visible badges. A failed refresh leaves the last good copy available. A missing row and an unavailable snapshot produce distinct title states. Cache-only mode uses local data and clearing the rating cache removes the snapshot.
 
 Saved IDs remain usable without an OMDb key, including mappings made before this change. Match checks and corrections still require the same evidence. Store the verified title details on new mappings so that clearing the cache does not discard their display metadata. Keep matching evidence separate from snapshot availability so a refresh failure cannot block a confirmed correction or validate an ambiguous title.
 

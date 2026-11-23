@@ -2,7 +2,7 @@ import { netflixBrowseSurface } from '../platforms/netflix';
 import { hotstarBrowseSurface, hotstarObservationPath, hotstarTitlePath } from '../platforms/hotstar/routes';
 import { APPLE_TV_ID, appleBrowseSurface, appleObservationPath, appleTitlePath } from '../platforms/apple-tv/routes';
 import { platformIdForOrigin } from '../platforms/links';
-import { HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type HotstarPosterRatingRequest, type Request, type TitleObservation } from './contracts';
+import { CACHED_LOOKUP_BATCH_SIZE, HOTSTAR_POSTER_BATCH_SIZE, PROTOCOL_VERSION, type HotstarPosterEntry, type HotstarPosterRatingRequest, type Request, type TitleObservation } from './contracts';
 import { validateFilmCredits } from './edition';
 import { normaliseTitle } from './identity';
 
@@ -79,7 +79,7 @@ export function validHotstarPosterEntry(entry: unknown): entry is HotstarPosterE
 
 const fields: Record<Request['type'], string[]> = {
   RELEASE_DEMAND: ['ref', 'posterKey'],
-  GET_PUBLIC_STATUS: [], OPEN_SETTINGS: [], LOOKUP: ['observation'], REFRESH: ['observation', 'revision'],
+  GET_PUBLIC_STATUS: [], OPEN_SETTINGS: [], LOOKUP: ['observation'], LOOKUP_CACHED: ['observations'], REFRESH: ['observation', 'revision'],
   OPEN_CORRECTION: ['observation', 'revision'], GET_STATUS: [], UPDATE_SETTINGS: ['settings'],
   SET_API_KEY: ['key'], TEST_API_KEY: [], REMOVE_API_KEY: [], GET_CONTEXT: ['contextId'],
   SEARCH_MATCHES: ['contextId', 'query', 'page'], PREVIEW_MATCH: ['contextId', 'input', 'searchId'],
@@ -90,11 +90,13 @@ const fields: Record<Request['type'], string[]> = {
   GET_HOTSTAR_POSTERS: [], SAVE_HOTSTAR_POSTERS: ['entries'], LOOKUP_HOTSTAR_POSTER_RATING: ['poster']
 };
 export function validateRequest(raw: unknown): Request {
-  if (!isObject(raw) || JSON.stringify(raw).length > (raw.type === 'SAVE_HOTSTAR_POSTERS' ? 30000 : 16000) || raw.protocol !== PROTOCOL_VERSION ||
+  if (!isObject(raw) || JSON.stringify(raw).length > (raw.type === 'LOOKUP_CACHED' ? 262144 : raw.type === 'SAVE_HOTSTAR_POSTERS' ? 30000 : 16000) || raw.protocol !== PROTOCOL_VERSION ||
     typeof raw.type !== 'string' || !Object.hasOwn(fields, raw.type)) throw new Error('Unsupported extension message.');
   const type = raw.type as Request['type'];
   if (!only(raw, ['protocol', 'type', ...fields[type]]) || !fields[type].every(k => type === 'RELEASE_DEMAND' || (type === 'PREVIEW_MATCH' && k === 'searchId') || (type === 'SET_MARK' && ['watched','plan'].includes(k)) || Object.hasOwn(raw, k))) throw new Error('Invalid extension message fields.');
   if ('observation' in raw && !validObservation(raw.observation)) throw new Error('Invalid title observation.');
+  if (type === 'LOOKUP_CACHED' && (!Array.isArray(raw.observations) || !raw.observations.length ||
+    raw.observations.length > CACHED_LOOKUP_BATCH_SIZE || !raw.observations.every(validObservation))) throw new Error('Invalid cached lookup batch.');
   if ('ref' in raw && !validRef(raw.ref)) throw new Error('Invalid platform title.');
   if (type === 'RELEASE_DEMAND' && 'posterKey' in raw && ('ref' in raw || !posterKeyParts(raw.posterKey))) throw new Error('Invalid Hotstar poster demand.');
   if ('revision' in raw && !revision(raw.revision)) throw new Error('Invalid mapping revision.');
@@ -156,21 +158,22 @@ export function authoriseRequest(sender: chrome.runtime.MessageSender, extension
   if (platformId !== 'hotstar' && (request.type === 'GET_HOTSTAR_POSTERS' || request.type === 'SAVE_HOTSTAR_POSTERS' ||
     request.type === 'LOOKUP_HOTSTAR_POSTER_RATING' || request.type === 'RELEASE_DEMAND' && request.posterKey !== undefined))
     throw new Error('This page cannot access Hotstar poster evidence.');
-  const refs = 'observation' in request ? [request.observation.ref] : 'refs' in request ? request.refs :
+  const observations = 'observations' in request ? request.observations : 'observation' in request ? [request.observation] : [];
+  const refs = observations.length ? observations.map(observation => observation.ref) : 'refs' in request ? request.refs :
     'ref' in request && request.ref ? [request.ref] : [];
   if (refs.some(ref => ref.platformId !== platformId)) throw new Error('Invalid platform title for this page.');
-  if ('observation' in request && request.observation.credits) {
+  for (const observation of observations) if (observation.credits) {
     const title = hotstarTitlePath(url);
-    if (title?.titleId !== request.observation.ref.titleId || title.mediaType !== request.observation.mediaType)
+    if (title?.titleId !== observation.ref.titleId || title.mediaType !== observation.mediaType)
       throw new Error('Invalid title credits for this page.');
   }
-  if (platformId === 'apple-tv' && 'observation' in request && request.observation.year &&
-    appleTitlePath(url)?.titleId !== request.observation.ref.titleId) throw new Error('Invalid title year for this page.');
+  if (platformId === 'apple-tv' && observations.some(observation => observation.year &&
+    appleTitlePath(url)?.titleId !== observation.ref.titleId)) throw new Error('Invalid title year for this page.');
   return { role, platformId };
 }
 export function authoriseCommand(role: SenderRole, type: Request['type']): void {
   const allowed: Record<SenderRole, Request['type'][]> = {
-    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES', 'GET_HOTSTAR_POSTERS', 'SAVE_HOTSTAR_POSTERS', 'LOOKUP_HOTSTAR_POSTER_RATING'],
+    content: ['GET_PUBLIC_STATUS', 'LOOKUP', 'LOOKUP_CACHED', 'REFRESH', 'OPEN_CORRECTION', 'OPEN_SETTINGS', 'RELEASE_DEMAND', 'GET_MARKS','SET_MARK','UNDO_MARK','OPEN_TITLES', 'GET_HOTSTAR_POSTERS', 'SAVE_HOTSTAR_POSTERS', 'LOOKUP_HOTSTAR_POSTER_RATING'],
     popup: ['GET_STATUS', 'UPDATE_SETTINGS', 'OPEN_SETTINGS','OPEN_TITLES'],
     options: ['GET_STATUS', 'UPDATE_SETTINGS', 'SET_API_KEY', 'TEST_API_KEY', 'REMOVE_API_KEY', 'LIST_MATCHES', 'REMOVE_MATCH', 'RESET_MATCHES', 'CLEAR_RATING_CACHE', 'EXPORT_DIAGNOSTICS', 'EXPORT_MATCHING_LOG', 'CLEAR_MATCHING_LOG', 'OPEN_TITLES','LIST_MARKS','RESET_MARKS','EXPORT_MARKS'],
     correction: ['GET_STATUS', 'GET_CONTEXT', 'SEARCH_MATCHES', 'PREVIEW_MATCH', 'CONFIRM_MATCH', 'OPEN_SETTINGS'],

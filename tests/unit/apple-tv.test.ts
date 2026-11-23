@@ -63,6 +63,18 @@ describe('Apple TV platform wiring', () => {
     expect(() => authoriseRequest(appleSender, 'ext', withYear)).toThrow(/title year/i);
   });
 
+  it('validates local batches and applies the same platform and year authority to every observation', () => {
+    const validate = (observations: unknown[]) => validateRequest({ protocol: PROTOCOL_VERSION, type: 'LOOKUP_CACHED', observations });
+    const senderPage = sender(origin + essentials);
+    expect(authoriseRequest(senderPage, 'ext', validate([observation]))).toMatchObject({ platformId: 'apple-tv' });
+    expect(() => validate([])).toThrow(/cached lookup batch/);
+    expect(() => validate(Array.from({ length: 101 }, () => observation))).toThrow(/cached lookup batch/);
+    const other = { ...observation, pagePath: undefined, ref: { platformId: 'netflix', titleId: '1234' } };
+    expect(() => authoriseRequest(senderPage, 'ext', validate([observation, other]))).toThrow(/platform title/i);
+    const withYear = { ...observation, year: { value: 2022, meaning: 'series_start' } };
+    expect(() => authoriseRequest(senderPage, 'ext', validate([withYear]))).toThrow(/title year/i);
+  });
+
   it('strictly validates Apple IDs and preserves ambiguous Wikidata results', () => {
     const row = (imdbId: string) => ({ appleTvId: { type: 'literal', value: titleId },
       item: { type: 'uri', value: 'http://www.wikidata.org/entity/Q123' }, imdbId: { type: 'literal', value: imdbId } });

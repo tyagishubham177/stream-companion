@@ -26,6 +26,7 @@ async function readPage(): Promise<void> {
     detail.textContent = stats.supported
       ? `${stats.tiles} supported ${stats.tiles === 1 ? 'tile' : 'tiles'} detected on this page.`
       : `Open a supported ${platform} browsing page, search or title page.`;
+    if (stats.supported && stats.stale) detail.textContent += ` ${stats.stale} ${stats.stale === 1 ? 'score is' : 'scores are'} due for refresh.`;
     const posters = stats.posterLookups;
     if (posters && Object.keys(posters).length) {
       const unresolved = (posters.ambiguous ?? 0) + (posters.too_broad ?? 0) + (posters.not_found ?? 0) +

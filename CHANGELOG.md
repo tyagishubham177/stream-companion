@@ -2,6 +2,12 @@
 
 Versions below are matched to their extension manifests. Historical tags preserve those snapshots.
 
+## 0.9.0 — Faster IMDb ratings
+
+- Read visible saved matches and IMDb scores together from local storage before queuing new lookups. Count fresh cache hits and stale scores separately.
+- Keep the last IMDb score visible while one shared snapshot refresh runs in the background. Update displayed ratings after the new snapshot is stored.
+- Use a verified Wikidata ID and agreeing title, type and year for Netflix and Apple TV matches. Keep OMDb available when the evidence is incomplete or ambiguous.
+
 ## 0.8.0 — Apple TV
 
 - Add IMDb badges and personal title marks to Apple TV films and series on Home, Essentials and other collections, browse rows, search and title details.

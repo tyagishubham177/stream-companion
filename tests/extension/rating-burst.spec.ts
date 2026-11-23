@@ -24,6 +24,9 @@ test('a cold ratings snapshot can serve 48 visible titles without extension requ
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
       '--host-resolver-rules=MAP * 127.0.0.1, EXCLUDE localhost', '--disable-background-networking'] });
   const snapshot = ratingsFixture(grid.map(({ imdbId }) => [imdbId, '7.5']));
+  const refreshed = ratingsFixture(grid.map(({ imdbId }) => [imdbId, '8.0']));
+  let finishRefresh!: () => void;
+  const refreshGate = new Promise<void>(resolve => { finishRefresh = resolve; });
   let downloads = 0;
   const unexpectedRequests: string[] = [];
   try {
@@ -32,9 +35,13 @@ test('a cold ratings snapshot can serve 48 visible titles without extension requ
       if (url === browseUrl) return route.fulfill({ contentType: 'text/html', body: catalogue });
       if (url === 'https://datasets.imdbws.com/title.ratings.tsv.gz') {
         downloads++;
-        // Keep the first lookup active while the content script scans the whole grid.
-        await new Promise(resolve => setTimeout(resolve, 8000));
-        return serveRatingsFixture(route, snapshot);
+        if (downloads === 1) {
+          // Keep the first lookup active while the content script scans the whole grid.
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          return serveRatingsFixture(route, snapshot);
+        }
+        await refreshGate;
+        return serveRatingsFixture(route, refreshed);
       }
       if (/^https?:/.test(url)) { unexpectedRequests.push(new URL(url).hostname); return route.abort(); }
       return route.continue();
@@ -93,8 +100,31 @@ test('a cold ratings snapshot can serve 48 visible titles without extension requ
     // Keep transient IPC failures visible to the assertion even if an automatic retry recovers.
     expect(await browse.evaluate(() => Reflect.get(window, 'fixtureRatingErrors'))).toEqual([]);
     expect(downloads).toBe(1);
+
+    // With the dataset and matches saved, the whole row bypasses the paced queue.
+    await browse.reload({ waitUntil: 'domcontentloaded' });
+    await expect(badges.and(browse.locator('[data-rated="true"]'))).toHaveCount(grid.length, { timeout: 3500 });
+    expect(downloads).toBe(1);
+
+    await settings.evaluate(async () => await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('stream-companion');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction('state', 'readwrite');
+        tx.objectStore('state').put({ key: 'imdb-ratings:snapshot', value: { fetchedAt: Date.now() - 86401000 } });
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    }));
+    await browse.reload({ waitUntil: 'domcontentloaded' });
+    await expect.poll(() => downloads).toBe(2);
+    await expect(badges.filter({ hasText: 'IMDb 7.5' })).toHaveCount(grid.length, { timeout: 3500 });
+    finishRefresh();
+    await expect(badges.filter({ hasText: 'IMDb 8.0' })).toHaveCount(grid.length);
+    expect(downloads).toBe(2);
     expect(unexpectedRequests).toEqual([]);
   } finally {
+    finishRefresh();
     await context.close();
     const outputRoot = path.resolve(info.outputDir) + path.sep;
     if (path.resolve(profile).startsWith(outputRoot)) await rm(profile, { recursive: true, force: true });

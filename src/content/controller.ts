@@ -23,9 +23,26 @@ interface TileState {
   visible: boolean;
   state: BadgeState | null;
   requested: boolean;
+  cached: boolean;
   retries: number;
+  revalidatedGeneration?: number;
   checkedAt?: number;
   timer?: ReturnType<typeof setTimeout>;
+}
+
+interface LookupWork {
+  observation: TitleObservation;
+  fingerprint: string;
+  epoch: number;
+  targets: Map<TileState, { generation: number; intent: 'resolve' | 'local-only' | 'revalidate' }>;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+const CACHE_BATCH_SIZE = 100;
+const NETWORK_DWELL_MS = 120;
+
+function rating(state: BadgeState | null): Extract<BadgeState, { kind: 'rated' | 'unrated' }> | null {
+  return state?.kind === 'rated' || state?.kind === 'unrated' ? state : null;
 }
 
 export class ContentController {
@@ -38,6 +55,11 @@ export class ContentController {
   private enrichment = new Map<string, TitleObservation>();
   private knownObservations = new Map<string, TitleObservation>();
   private demandRefs = new Set<string>();
+  private readonly cacheReads = new Map<string, LookupWork>();
+  private readonly cacheQueue = new Map<string, LookupWork>();
+  private readonly networkReads = new Map<string, LookupWork>();
+  private cacheTimer?: ReturnType<typeof setTimeout>;
+  private snapshotVersion = 0;
   private demandLifetimeActive = false;
   private warnedReleaseFailure = false;
   private mutation: MutationObserver | null = null;
@@ -77,6 +99,13 @@ export class ContentController {
   private readonly message = (message: unknown, _sender: chrome.runtime.MessageSender, respond: (response: unknown) => void): boolean => {
     if (!message || typeof message !== 'object') return false;
     if ('type' in message && message.type === 'SC_GET_PAGE_STATS') { respond(this.stats()); return false; }
+    if ('type' in message && message.type === 'SC_RATINGS_REFRESHED') {
+      this.snapshotVersion++;
+      for (const tile of this.tiles.values()) {
+        if (this.lookupVisible(tile) && tile.state?.kind !== 'hotstar_score') this.enqueueCache(tile, false);
+      }
+      return false;
+    }
     if ('type' in message && message.type === 'SC_INVALIDATE') {
       const update = message as Extract<Broadcast, { type: 'SC_INVALIDATE' }>;
       if (!update.ref) this.posterRatings?.invalidate();
@@ -162,16 +191,8 @@ export class ContentController {
       for (const entry of entries) {
         const state = this.tiles.get(entry.target as HTMLElement);
         if (!state) { this.posterRatings?.visibility(entry); continue; }
-        const wasVisible = state.visible;
         state.visible = entry.isIntersecting && entry.intersectionRatio > 0;
-        if (state.visible) {
-          this.renewDemand(state);
-          if (!wasVisible && state.state && canResumeOnDemand(state.state, Date.now())) {
-            state.requested = false; state.retries = 0;
-          }
-          this.queueLookup(state);
-        }
-        else { clearTimeout(state.timer); state.timer = undefined; this.hideTile(state); }
+        if (!state.visible) { clearTimeout(state.timer); state.timer = undefined; this.hideTile(state); }
       }
       this.reposition();
     }, { threshold: [0, 0.1] });
@@ -225,8 +246,18 @@ export class ContentController {
   private scan(): void {
     if (!this.overlay || !this.adapter || document.hidden) return;
     if (!this.adapter.supports(new URL(location.href))) { this.reconcile(); return; }
+    const settled = new Map<string, TileState>();
     for (const state of this.tiles.values()) {
-      if (!state.tile.isConnected || this.adapter.badgeContainer(state.tile) !== state.mount.container || !state.mount.host.isConnected || !this.syncIdentity(state)) this.removeTile(state);
+      if (!state.tile.isConnected || this.adapter.badgeContainer(state.tile) !== state.mount.container || !state.mount.host.isConnected || !this.syncIdentity(state)) {
+        this.removeTile(state);
+      } else {
+        const displayed = rating(state.state);
+        const previous = settled.get(state.fingerprint);
+        if (displayed && ratingCacheState(displayed.record) !== 'expired' &&
+            (!previous || state.revision > previous.revision || (state.revision === previous.revision && displayed.record.fetchedAt > rating(previous.state)!.record.fetchedAt))) {
+          settled.set(state.fingerprint, state);
+        }
+      }
     }
     const candidates = Array.from(this.adapter.findTiles(document));
     this.posterRatings?.scan(document);
@@ -255,11 +286,10 @@ export class ContentController {
       });
       const fingerprint = observationFingerprint(observation);
       const initial = this.initialState(tile);
-      const shared = initial?.kind !== 'hotstar_score' ? [...this.tiles.values()].find(other => other.fingerprint === fingerprint &&
-        (other.state?.kind === 'rated' || other.state?.kind === 'unrated') && ratingCacheState(other.state.record) === 'fresh') : undefined;
+      const shared = initial?.kind !== 'hotstar_score' ? settled.get(fingerprint) : undefined;
       const state: TileState = { tile, button: mount.button, mount, observation, fingerprint, generation: 0,
         revision: shared?.revision ?? 0, visible: false, state: shared?.state ?? initial,
-        requested: !!shared || initial?.kind === 'hotstar_score', retries: 0, checkedAt: shared?.checkedAt };
+        requested: !!shared || initial?.kind === 'hotstar_score', cached: !!shared?.cached, retries: 0, checkedAt: shared?.checkedAt };
       this.overlay.updateBadge(state.button, observation, state.state);
       this.tiles.set(tile, state); this.intersection?.observe(tile);
     }
@@ -286,7 +316,7 @@ export class ContentController {
   }
 
   private invalidateTile(state: TileState, initial = this.initialState(state.tile)): void {
-    state.generation++; state.state = initial; state.requested = initial?.kind === 'hotstar_score'; state.retries = 0;
+    state.generation++; state.state = initial; state.requested = initial?.kind === 'hotstar_score'; state.cached = false; state.retries = 0;
     clearTimeout(state.timer); state.timer = undefined; this.overlay?.closeFor(state.button);
     this.overlay?.updateBadge(state.button, state.observation, state.state);
     if (state.visible) this.queueLookup(state);
@@ -339,7 +369,7 @@ export class ContentController {
     const due = result && (result.kind === 'rated' || result.kind === 'unrated')
       ? ratingCacheState(result.record, now) !== 'fresh'
       : result?.kind === 'needs_match' && (!state.checkedAt || now - state.checkedAt >= DAY_MS || now < state.checkedAt);
-    if (!result || due || canResumeOnDemand(result, now)) { state.requested = false; state.retries = 0; }
+    if (due || (result && canResumeOnDemand(result, now))) { state.requested = false; state.retries = 0; }
   }
 
   private hideTile(state: TileState): void {
@@ -359,20 +389,145 @@ export class ContentController {
       state.timer = undefined;
       if (epoch === this.epoch && generation === state.generation && this.tiles.get(state.tile) === state &&
         state.visible && !state.button.hidden && !document.hidden && !this.adapter?.isObscured(state.tile)) {
-        state.requested = false; void this.lookup(state);
+        state.requested = false; this.queueLookup(state);
       }
     }, delay);
   }
 
   private queueLookup(state: TileState): void {
-    if (state.requested || state.timer || document.hidden || !this.status?.settings.enabled) return;
-    state.timer = setTimeout(() => {
-      state.timer = undefined;
-      if (state.visible && !state.button.hidden && state.tile.isConnected && !document.hidden && !this.adapter?.isObscured(state.tile)) void this.lookup(state);
-    }, 120);
+    if (state.requested || state.timer || !this.lookupVisible(state)) return;
+    state.requested = true;
+    this.enqueueCache(state, true);
   }
 
-  private async lookup(state: TileState, refresh = false): Promise<void> {
+  private lookupVisible(state: TileState): boolean {
+    return state.visible && !state.button.hidden && state.tile.isConnected && !document.hidden &&
+      !!this.status?.settings.enabled && !this.adapter?.isObscured(state.tile);
+  }
+
+  private lookupWork(state: TileState): LookupWork {
+    return { observation: state.observation, fingerprint: state.fingerprint, epoch: this.epoch, targets: new Map() };
+  }
+
+  private enqueueCache(state: TileState, allowNetwork: boolean): void {
+    const key = `${this.snapshotVersion}:${state.fingerprint}`;
+    let work = this.cacheReads.get(key);
+    if (!work) {
+      work = this.lookupWork(state);
+      this.cacheReads.set(key, work);
+      this.cacheQueue.set(key, work);
+    }
+    const previous = work.targets.get(state);
+    const resolve = allowNetwork || (previous?.generation === state.generation && previous.intent === 'resolve');
+    work.targets.set(state, { generation: state.generation, intent: resolve ? 'resolve' : 'local-only' });
+    if (this.cacheQueue.size && this.cacheTimer === undefined) this.cacheTimer = setTimeout(() => this.flushCache(), 0);
+  }
+
+  private flushCache(): void {
+    this.cacheTimer = undefined;
+    const queued = [...this.cacheQueue];
+    this.cacheQueue.clear();
+    for (let index = 0; index < queued.length; index += CACHE_BATCH_SIZE) {
+      void this.readCache(queued.slice(index, index + CACHE_BATCH_SIZE));
+    }
+  }
+
+  private async readCache(batch: Array<[string, LookupWork]>): Promise<void> {
+    try {
+      const results = await rpc<Array<LookupResult | null>>({ type: 'LOOKUP_CACHED', observations: batch.map(([, work]) => work.observation) });
+      if (!Array.isArray(results) || results.length !== batch.length) throw new Error('The cached ratings reply was incomplete.');
+      for (const [index, [, work]] of batch.entries()) {
+        const result = results[index];
+        for (const [state, target] of work.targets) {
+          if (!this.accepts(state, target.generation, work.fingerprint, work.epoch)) continue;
+          if (result) {
+            if (this.applyResult(state, result) && target.intent === 'resolve' && result.revalidate &&
+                !this.status?.settings.cacheOnly && state.revalidatedGeneration !== target.generation && this.lookupVisible(state)) {
+              state.revalidatedGeneration = target.generation;
+              this.enqueueNetwork(state, true);
+            }
+          } else if (target.intent === 'resolve') {
+            if (this.lookupVisible(state)) this.enqueueNetwork(state, false);
+            else state.requested = !!state.state;
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
+      for (const [, work] of batch) for (const [state, target] of work.targets) {
+        if (target.intent === 'resolve' && this.accepts(state, target.generation, work.fingerprint, work.epoch)) this.lookupFailed(state, error);
+      }
+    } finally {
+      for (const [key, work] of batch) if (this.cacheReads.get(key) === work) this.cacheReads.delete(key);
+      this.reposition();
+    }
+  }
+
+  private enqueueNetwork(state: TileState, revalidate: boolean): void {
+    let work = this.networkReads.get(state.fingerprint);
+    if (!work) {
+      const pending = this.lookupWork(state);
+      pending.timer = setTimeout(() => { void this.lookupNetwork(pending); }, NETWORK_DWELL_MS);
+      this.networkReads.set(state.fingerprint, pending);
+      work = pending;
+    }
+    work.targets.set(state, { generation: state.generation, intent: revalidate ? 'revalidate' : 'resolve' });
+  }
+
+  private async lookupNetwork(work: LookupWork): Promise<void> {
+    try {
+      const result = await this.ratingRequests.run(
+        () => [...work.targets].some(([state, target]) => this.lookupVisible(state) &&
+          this.accepts(state, target.generation, work.fingerprint, work.epoch) &&
+          (target.intent === 'revalidate' || !state.cached || !rating(state.state))),
+        () => {
+          this.demandRefs.add(titleKey(work.observation.ref));
+          return rpc<LookupResult>({ type: 'LOOKUP', observation: work.observation });
+        },
+      );
+      for (const [state, target] of work.targets) {
+        if (!this.accepts(state, target.generation, work.fingerprint, work.epoch)) continue;
+        if (!result) {
+          if (target.intent === 'revalidate') state.revalidatedGeneration = undefined;
+          state.requested = target.intent !== 'revalidate' && !!state.state;
+        }
+        else if (!(result.state.kind === 'deferred' && rating(state.state)) && this.applyResult(state, result)) this.scheduleRetry(state);
+      }
+    } catch (error) {
+      if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
+      for (const [state, target] of work.targets) {
+        if (this.accepts(state, target.generation, work.fingerprint, work.epoch)) this.lookupFailed(state, error);
+      }
+    } finally {
+      if (this.networkReads.get(work.fingerprint) === work) this.networkReads.delete(work.fingerprint);
+      this.reposition();
+    }
+  }
+
+  private applyResult(state: TileState, result: LookupResult): boolean {
+    if (result.fingerprint !== state.fingerprint || result.revision < state.revision) return false;
+    const next = result.state;
+    const previousTime = rating(state.state)?.record.fetchedAt ?? 0;
+    const nextTime = rating(next)?.record.fetchedAt ?? 0;
+    if (result.revision === state.revision && nextTime && nextTime < previousTime) return false;
+    state.revision = result.revision;
+    state.checkedAt = Date.now();
+    state.cached = result.cached === true || (state.cached && nextTime > 0 && nextTime === previousTime);
+    state.requested = true;
+    state.state = next;
+    this.overlay?.updateBadge(state.button, state.observation, next);
+    return true;
+  }
+
+  private lookupFailed(state: TileState, error: unknown): void {
+    if (rating(state.state)) return;
+    state.state = error instanceof ExtensionBusyError ? { kind: 'deferred', reason: 'busy', message: error.message, retryAfter: error.retryAfter } :
+      { kind: 'deferred', reason: 'provider', message: error instanceof Error ? error.message : 'Unable to connect to the rating service.' };
+    this.overlay?.updateBadge(state.button, state.observation, state.state);
+    this.scheduleRetry(state);
+  }
+
+  private async refresh(state: TileState): Promise<void> {
     if (!this.overlay || !this.syncIdentity(state) || state.state?.kind === 'hotstar_score' || document.hidden || !this.status?.settings.enabled) return;
     const generation = state.generation;
     const fingerprint = state.fingerprint;
@@ -381,34 +536,12 @@ export class ContentController {
     const observation = state.observation;
     state.requested = true;
     try {
-      const result = refresh ? await rpc<LookupResult>({ type: 'REFRESH', observation, revision }) :
-        await this.ratingRequests.run(
-          () => state.visible && !state.button.hidden && !document.hidden && !!this.status?.settings.enabled &&
-            this.accepts(state, generation, fingerprint, epoch) && !this.adapter?.isObscured(state.tile),
-          () => {
-            this.demandRefs.add(titleKey(observation.ref));
-            return rpc<LookupResult>({ type: 'LOOKUP', observation });
-          },
-        );
-      if (!result) {
-        if (this.accepts(state, generation, fingerprint, epoch)) state.requested = false;
-        return;
-      }
-      if (!this.accepts(state, generation, fingerprint, epoch) || result.fingerprint !== fingerprint || result.revision < state.revision) return;
-      state.revision = result.revision;
-      state.checkedAt = Date.now();
-      state.state = result.state;
-      this.overlay?.updateBadge(state.button, state.observation, state.state);
-      if (!refresh) this.scheduleRetry(state);
-      this.reposition();
+      const result = await rpc<LookupResult>({ type: 'REFRESH', observation, revision });
+      if (this.accepts(state, generation, fingerprint, epoch) && this.applyResult(state, result)) this.reposition();
     } catch (error) {
       if (error instanceof ExtensionContextInvalidatedError) { this.disconnect(); return; }
       if (!this.accepts(state, generation, fingerprint, epoch)) return;
-      if (refresh && error instanceof ExtensionBusyError) throw error;
-      state.state = { kind: 'deferred', reason: 'provider', message: error instanceof Error ? error.message : 'Unable to connect to the rating service.' };
-      this.overlay?.updateBadge(state.button, state.observation, state.state);
-      if (!refresh) this.scheduleRetry(state);
-      if (refresh) throw error;
+      throw error;
     }
   }
 
@@ -424,7 +557,7 @@ export class ContentController {
       observation: state.observation, state: state.state, button: state.button,
       fallbackFocus: () => state.tile.isConnected ? state.tile : [...this.tiles.values()].find(t => t !== state && t.tile.isConnected && !t.button.hidden)?.button ?? null,
       refresh: async () => {
-        await this.lookup(state, true);
+        await this.refresh(state);
         this.overlay?.closeFor(state.button);
         if (state.generation === generation && state.tile.isConnected && !state.button.hidden) this.open(state);
       },
@@ -440,8 +573,9 @@ export class ContentController {
       const corner = this.adapter?.badgeCorner?.(state.tile) ?? this.status?.settings.corner ?? 'top-right';
       if (state.mount.host.dataset.corner !== corner) state.mount.host.dataset.corner = corner;
       if (hidden || this.adapter?.isObscured(state.tile) || !state.visible || !state.tile.isConnected || state.tile.closest('[aria-hidden="true"],[hidden],[inert]')) { this.hideTile(state); continue; }
+      const becameVisible = state.button.hidden;
       state.button.hidden = false;
-      this.renewDemand(state);
+      if (becameVisible) this.renewDemand(state);
       if (!state.requested) this.queueLookup(state);
     }
     if (this.status) this.posterRatings?.position(this.status.settings);
@@ -456,6 +590,10 @@ export class ContentController {
 
   private detach(): void {
     this.ratingRequests.cancelPending();
+    clearTimeout(this.cacheTimer); this.cacheTimer = undefined;
+    this.cacheQueue.clear(); this.cacheReads.clear();
+    for (const work of this.networkReads.values()) clearTimeout(work.timer);
+    this.networkReads.clear();
     if (this.demandLifetimeActive) {
       this.demandLifetimeActive = false; this.demandRefs.clear(); this.release();
     }
@@ -476,7 +614,8 @@ export class ContentController {
       tiles: all.length + (this.posterRatings?.size ?? 0),
       rated: all.filter(t => t.state?.kind === 'rated' || t.state?.kind === 'hotstar_score').length + (this.posterRatings?.rated ?? 0),
       unresolved: all.filter(t => t.state?.kind === 'needs_match').length,
-      cached: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,
+      cached: all.filter(t => t.state?.kind === 'rated' && (t.cached || t.state.stale)).length,
+      stale: all.filter(t => t.state?.kind === 'rated' && t.state.stale).length,
       ...(this.posterRatings ? { posterLookups: this.posterRatings.lookupCounts } : {}),
     };
   }
